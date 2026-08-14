@@ -70,10 +70,15 @@ corenet_tcp_sendrecv_generic_node(stalwart_t)
 corenet_tcp_bind_generic_node(stalwart_t)
 corenet_tcp_bind_smtp_port(stalwart_t)
 corenet_tcp_bind_cyrus_imapd_port(stalwart_t)
+# Fedora labels TCP 993 as pop_port_t together with several legacy mail ports.
+# This permission is required for IMAPS; Stalwart's compiled defaults and the
+# host firewall independently ensure that no POP listener is created/exposed.
+corenet_tcp_bind_pop_port(stalwart_t)
 corenet_tcp_bind_http_port(stalwart_t)
 corenet_tcp_bind_http_cache_port(stalwart_t)
 corenet_tcp_sendrecv_smtp_port(stalwart_t)
 corenet_tcp_sendrecv_cyrus_imapd_port(stalwart_t)
+corenet_tcp_sendrecv_pop_port(stalwart_t)
 corenet_tcp_sendrecv_http_port(stalwart_t)
 corenet_tcp_sendrecv_http_cache_port(stalwart_t)
 

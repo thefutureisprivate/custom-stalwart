@@ -64,6 +64,12 @@ the default registry and are not admitted by the ParticleOS firewall. Public
 listeners bind explicitly on both IPv4 and IPv6; the plaintext bootstrap WebUI
 listener binds only to `127.0.0.1:8080` and `[::1]:8080`.
 
+Fedora assigns TCP 993 to the historical SELinux `pop_port_t`, which also
+contains legacy POP ports. The Stalwart domain therefore needs bind permission
+for that Fedora type to provide IMAPS. This does not enable POP: the compiled
+registry defaults omit POP listeners, the image health gate rejects unexpected
+legacy listeners, and nftables exposes only the four documented public ports.
+
 The RPM also carries a compiled `particleos_stalwart` SELinux policy. The
 mailserver image installs it before the final full-filesystem relabel. The
 domain may read only its labelled configuration and WebUI, manage its labelled

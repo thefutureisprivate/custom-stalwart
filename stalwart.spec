@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -158,6 +158,9 @@ target/release/stalwart --version
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-5
+- Permit the Fedora SELinux port type that contains IMAPS TCP 993
+
 * Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-4
 - Bind public listeners explicitly on IPv4 and IPv6
 - Keep the bootstrap WebUI listener restricted to IPv4 and IPv6 loopback
