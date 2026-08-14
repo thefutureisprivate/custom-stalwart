@@ -63,6 +63,9 @@ implicit-TLS IMAP 993, and HTTPS 443. POP3 and ManageSieve are not created by
 the default registry and are not admitted by the ParticleOS firewall. Public
 listeners bind explicitly on both IPv4 and IPv6; the plaintext bootstrap WebUI
 listener binds only to `127.0.0.1:8080` and `[::1]:8080`.
+Listener binding is fail-closed: any requested address that cannot be bound
+aborts startup instead of leaving Stalwart active with a partial listener set
+or an implicitly assigned ephemeral port.
 
 Fedora assigns TCP 993 to the historical SELinux `pop_port_t`, which also
 contains legacy POP ports. The Stalwart domain therefore needs bind permission

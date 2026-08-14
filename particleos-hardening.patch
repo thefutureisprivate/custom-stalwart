@@ -218,3 +218,28 @@
 +        assert!(CONTENT_SECURITY_POLICY.contains(&format!("'{style_hash}'")));
 +    }
 +}
+--- a/crates/common/src/network/listen.rs
++++ b/crates/common/src/network/listen.rs
+@@ -312,17 +312,15 @@
+ }
+ 
+ impl Listeners {
+-    pub fn bind_and_drop_priv(&self, bp: &mut Bootstrap) {
++    pub fn bind_and_drop_priv(&self, _bp: &mut Bootstrap) {
+         // Bind as root
+         for server in &self.servers {
+             for listener in &server.listeners {
+-                if let Err(err) = listener.socket.bind(listener.addr) {
+-                    bp.build_error(
+-                        server.registry_id,
+-                        format!("Failed to bind to {}: {}", listener.addr, err),
+-                    );
+-                }
++                listener
++                    .socket
++                    .bind(listener.addr)
++                    .failed(&format!("Failed to bind to {}", listener.addr));
+             }
+         }
+ 
+         // Drop privileges
