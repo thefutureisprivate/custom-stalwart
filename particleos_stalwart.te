@@ -52,7 +52,8 @@ allow stalwart_t self:tcp_socket create_stream_socket_perms;
 
 # Stalwart resolves through the host stub. nftables independently limits this
 # DNS permission to systemd-resolved on loopback, whose only upstream path is
-# authenticated DNS-over-TLS with local DNSSEC validation.
+# authenticated DNS-over-TLS. Stalwart uses resolved's TCP proxy stub so its
+# own DANE resolver can validate the preserved DNSSEC records locally.
 sysnet_dns_name_resolve(stalwart_t)
 systemd_chat_resolved(stalwart_t)
 

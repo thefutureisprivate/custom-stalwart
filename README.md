@@ -56,7 +56,11 @@ authentication maps it to the same unprivileged database role, so no database
 password exists in an environment variable or configuration file. The
 ParticleOS mailserver image owns database initialization and provisioning.
 The package also requires `systemd-resolved`; Stalwart has no independent DNS
-egress to external resolvers and uses the local resolved stub exclusively.
+egress to external resolvers. Its immutable default uses resolved's
+loopback-only TCP proxy stub at `127.0.0.54:53`. Resolved translates that flow
+to authenticated Cloudflare DNS-over-TLS while preserving the DNSSEC records
+Stalwart validates locally for DANE. Ordinary OS resolution continues through
+resolved's full validating stub at `127.0.0.53`.
 
 The default public protocol set is SMTP 25, implicit-TLS submission 465,
 implicit-TLS IMAP 993, and HTTPS 443. POP3 and ManageSieve are not created by

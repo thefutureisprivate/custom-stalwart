@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        6%{?dist}
+Release:        7%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -158,6 +158,9 @@ target/release/stalwart --version
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-7
+- Validate DANE DNSSEC data through systemd-resolved's local TCP proxy stub
+
 * Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-6
 - Abort startup instead of listening on an ephemeral port after a bind failure
 

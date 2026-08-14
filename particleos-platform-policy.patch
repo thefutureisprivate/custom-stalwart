@@ -1,6 +1,6 @@
 --- a/crates/common/src/manager/defaults.rs
 +++ b/crates/common/src/manager/defaults.rs
-@@ -46,6 +46,20 @@
+@@ -46,6 +46,31 @@
      }
  }
  
@@ -18,10 +18,21 @@
 +    }
 +}
 +
++fn particleos_dns_resolver() -> DnsResolver {
++    DnsResolver::Custom(DnsResolverCustom {
++        servers: List::from(vec![DnsCustomResolver {
++            protocol: DnsResolverProtocol::Tcp,
++            address: "127.0.0.54".parse().unwrap(),
++            port: 53,
++        }]),
++        ..Default::default()
++    })
++}
++
  async fn insert_safe_defaults(bp: &mut Bootstrap) -> trc::Result<()> {
      let is_recovery_mode = bp.registry.is_recovery_mode();
      let is_bootstrap_mode = bp.registry.is_bootstrap_mode();
-@@ -55,15 +69,10 @@
+@@ -55,23 +80,24 @@
          bp.registry
              .write(RegistryWrite::insert(
                  &Application {
@@ -39,7 +50,21 @@
                      unpack_directory: None,
                      url_prefix: Map::new(vec!["/admin".into(), "/account".into()]),
                  }
-@@ -462,17 +471,13 @@
+                 .into(),
+             ))
+             .await?;
+     }
+ 
++    if bp.registry.count_object(ObjectType::DnsResolver).await? == 0 {
++        bp.registry
++            .write(RegistryWrite::insert(&particleos_dns_resolver().into()))
++            .await?;
++    }
++
+     if is_bootstrap_mode {
+         #[cfg(not(any(feature = "dev_mode", feature = "test_mode")))]
+         if bp.registry.count_object(ObjectType::SystemSettings).await? == 0 {
+@@ -462,17 +488,13 @@
              (NetworkListenerProtocol::Smtp, "smtp", 25, false),
              (NetworkListenerProtocol::Smtp, "submissions", 465, true),
              (NetworkListenerProtocol::Imap, "imaps", 993, true),
@@ -58,7 +83,7 @@
                          name: name.to_string(),
                          protocol,
                          use_tls: true,
-@@ -555,3 +560,26 @@
+@@ -555,3 +577,40 @@
  
      Ok(())
  }
@@ -83,6 +108,20 @@
 +                SocketAddr::from_str("[::]:25").unwrap(),
 +            ]
 +        );
++    }
++
++    #[test]
++    fn particleos_dns_uses_resolved_proxy_over_tcp() {
++        match particleos_dns_resolver() {
++            DnsResolver::Custom(resolver) => {
++                let server = resolver.servers.values().next().unwrap();
++                assert_eq!(resolver.servers.len(), 1);
++                assert_eq!(server.protocol, DnsResolverProtocol::Tcp);
++                assert_eq!(server.address.to_string(), "127.0.0.54");
++                assert_eq!(server.port, 53);
++            }
++            _ => panic!("ParticleOS resolver must use the resolved proxy stub"),
++        }
 +    }
 +}
 --- a/crates/common/src/manager/application.rs
