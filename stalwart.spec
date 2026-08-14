@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -115,6 +115,7 @@ install -Dpm0644 selinux/particleos_stalwart.pp \
 # exact CSP hashes required by Stalwart's packaged login page.
 cargo test --frozen --release -p http@%{version} security_headers::tests
 cargo test --frozen --release -p common@%{version} application::tests
+cargo test --frozen --release -p common@%{version} defaults::tests
 
 # The WebUI is an immutable, checksum-pinned RPM payload rather than a
 # first-boot network download. Reject a malformed source archive at build time.
@@ -157,6 +158,10 @@ target/release/stalwart --version
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-4
+- Bind public listeners explicitly on IPv4 and IPv6
+- Keep the bootstrap WebUI listener restricted to IPv4 and IPv6 loopback
+
 * Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-3
 - Package the checksum-pinned WebUI inside the signed immutable OS payload
 - Reject runtime WebUI downloads and remove default POP3 and ManageSieve listeners

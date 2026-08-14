@@ -60,7 +60,9 @@ egress to external resolvers and uses the local resolved stub exclusively.
 
 The default public protocol set is SMTP 25, implicit-TLS submission 465,
 implicit-TLS IMAP 993, and HTTPS 443. POP3 and ManageSieve are not created by
-the default registry and are not admitted by the ParticleOS firewall.
+the default registry and are not admitted by the ParticleOS firewall. Public
+listeners bind explicitly on both IPv4 and IPv6; the plaintext bootstrap WebUI
+listener binds only to `127.0.0.1:8080` and `[::1]:8080`.
 
 The RPM also carries a compiled `particleos_stalwart` SELinux policy. The
 mailserver image installs it before the final full-filesystem relabel. The
