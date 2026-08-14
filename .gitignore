@@ -1,0 +1,10 @@
+# Open Build Service checkout metadata and generated service outputs
+.osc/
+_service:*
+*.obscpio
+
+# Generated source, vendor, and package artifacts
+stalwart-*.tar.*
+vendor.tar.*
+*.rpm
+*.src.rpm

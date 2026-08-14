@@ -1,0 +1,11 @@
+<package name="stalwart" project="home:thefutureisprivate">
+  <title>ParticleOS Stalwart mail server</title>
+  <description>
+    Source-built Stalwart mail and collaboration server with a PostgreSQL-only
+    feature set and a hardened systemd runtime policy for ParticleOS.
+  </description>
+  <build>
+    <disable/>
+    <enable arch="x86_64" repository="Fedora_44"/>
+  </build>
+</package>

@@ -1,0 +1,25 @@
+<services>
+  <!--
+    Keep these services in manual mode: build.opensuse.org does not provide
+    cargo_vendor server-side. The scheduled updater runs them in the
+    authenticated tools distrobox after the release-approval gate passes.
+  -->
+  <service name="download_files" mode="manual">
+    <param name="enforceupstream">yes</param>
+  </service>
+  <service name="cargo_vendor" mode="manual">
+    <param name="src">stalwart-*.tar.gz</param>
+    <param name="update">false</param>
+    <param name="respect-lockfile">true</param>
+    <param name="filter">false</param>
+    <!-- Removed by Patch0 before compilation. -->
+    <param name="i-accept-the-risk">RUSTSEC-2025-0003</param>
+    <!-- No vulnerable lz4_flex release is selected by the PostgreSQL build. -->
+    <param name="i-accept-the-risk">RUSTSEC-2026-0041</param>
+    <!-- Affected quick-xml versions belong to disabled cloud backends. -->
+    <param name="i-accept-the-risk">RUSTSEC-2026-0194</param>
+    <param name="i-accept-the-risk">RUSTSEC-2026-0195</param>
+    <!-- No fixed rsa release exists; deployments require Ed25519 DKIM. -->
+    <param name="i-accept-the-risk">RUSTSEC-2023-0071</param>
+  </service>
+</services>
