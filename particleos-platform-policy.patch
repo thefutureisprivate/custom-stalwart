@@ -1,0 +1,92 @@
+--- a/crates/common/src/manager/defaults.rs
++++ b/crates/common/src/manager/defaults.rs
+@@ -55,15 +55,10 @@
+         bp.registry
+             .write(RegistryWrite::insert(
+                 &Application {
+-                    auto_update_frequency: Duration::from_millis(30 * 24 * 60 * 60 * 1000),
++                    auto_update_frequency: Duration::from_millis(24 * 60 * 60 * 1000),
+                     description: "Stalwart Web Interface".to_string(),
+                     enabled: true,
+-                    #[cfg(not(feature = "dev_mode"))]
+-                    resource_url:
+-                        "https://github.com/stalwartlabs/webui/releases/latest/download/webui.zip"
+-                            .into(),
+-                    #[cfg(feature = "dev_mode")]
+-                    resource_url: "file:///Users/me/code/webui/.ignore/webui.zip".into(),
++                    resource_url: "file:///usr/share/stalwart/webui.zip".into(),
+                     unpack_directory: None,
+                     url_prefix: Map::new(vec!["/admin".into(), "/account".into()]),
+                 }
+@@ -462,8 +457,6 @@
+             (NetworkListenerProtocol::Smtp, "smtp", 25, false),
+             (NetworkListenerProtocol::Smtp, "submissions", 465, true),
+             (NetworkListenerProtocol::Imap, "imaps", 993, true),
+-            (NetworkListenerProtocol::Pop3, "pop3s", 995, true),
+-            (NetworkListenerProtocol::ManageSieve, "sieve", 4190, false),
+             (NetworkListenerProtocol::Http, "https", 443, true),
+             (NetworkListenerProtocol::Http, "http", 8080, false),
+         ] {
+--- a/crates/common/src/manager/application.rs
++++ b/crates/common/src/manager/application.rs
+@@ -23,6 +23,7 @@
+ use types::blob_hash::BlobHash;
+ 
+ const APP_BLOB_PREFIX: &str = "STALWART_APP_";
++const PARTICLEOS_WEBUI_URL: &str = "file:///usr/share/stalwart/webui.zip";
+ const MAX_APP_SIZE: usize = 100 * 1024 * 1024;
+ 
+ #[allow(clippy::type_complexity)]
+@@ -183,6 +184,16 @@
+     }
+ 
+     async fn unpack(&self, server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
++        // ParticleOS application bundles are RPM payloads covered by the OS
++        // signature and immutable /usr Verity tree. Never turn a registry
++        // value into a second, unsigned software update channel.
++        if !is_os_managed_application(&self.url) {
++            return Err(trc::ResourceEvent::Error
++                .caused_by(trc::location!())
++                .ctx(Key::Url, self.url.clone())
++                .details("ParticleOS only permits the packaged Stalwart WebUI bundle"));
++        }
++
+         // Delete any existing bundles
+         self.bundle_path.clean().await.map_err(unpack_error)?;
+ 
+@@ -325,6 +336,10 @@
+     }
+ }
+ 
++fn is_os_managed_application(url: &str) -> bool {
++    url == PARTICLEOS_WEBUI_URL
++}
++
+ impl Resource<Vec<u8>> {
+     pub fn is_empty(&self) -> bool {
+         self.content_type.is_empty() && self.contents.is_empty()
+@@ -366,3 +381,24 @@
+         Self::new()
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn only_the_immutable_os_webui_is_accepted() {
++        assert!(is_os_managed_application(
++            "file:///usr/share/stalwart/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "https://github.com/stalwartlabs/webui/releases/latest/download/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "file:///var/lib/stalwart/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "file:///usr/share/stalwart/../untrusted.zip"
++        ));
++    }
++}

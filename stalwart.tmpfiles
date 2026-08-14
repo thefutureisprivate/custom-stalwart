@@ -1,7 +1,6 @@
 # Mutable configuration is initialized once from immutable package defaults.
 d /etc/stalwart 0750 root stalwart -
 C /etc/stalwart/config.json 0640 root stalwart - /usr/lib/stalwart/config.json
-C /etc/stalwart/stalwart.env 0600 root root - /usr/lib/stalwart/stalwart.env
 Z /etc/stalwart - root stalwart -
 d /var/lib/stalwart 0700 stalwart stalwart -
 Z /var/lib/stalwart - stalwart stalwart -

@@ -1,0 +1,220 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -54,7 +54,7 @@
+ incremental = false
+ panic = 'unwind'
+ debug-assertions = false
+-overflow-checks = false
++overflow-checks = true
+ rpath = false
+ strip = true
+ 
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -7998,7 +7998,6 @@
+  "smtp-proto",
+  "spam-filter",
+  "store",
+- "tikv-jemallocator",
+  "tokio",
+  "trc",
+  "types",
+--- a/crates/main/Cargo.toml
++++ b/crates/main/Cargo.toml
+@@ -40,9 +40,6 @@
+ tokio = { version = "1.53", features = ["full"] }
+ rustls = { version = "0.23.43", default-features = false, features = ["std", "aws_lc_rs", "tls12"] }
+ 
+-[target.'cfg(not(any(target_env = "msvc", target_os = "freebsd")))'.dependencies]
+-tikv-jemallocator = "0.7"
+-
+ [features]
+ #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "azure", "nats", "enterprise", "zenoh", "kafka"]
+ #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "azure", "nats", "enterprise"]
+--- a/crates/main/src/main.rs
++++ b/crates/main/src/main.rs
+@@ -23,13 +23,6 @@
+ #[cfg(feature = "dev_mode")]
+ pub mod test_data;
+ 
+-#[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]
+-use tikv_jemallocator::Jemalloc;
+-
+-#[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]
+-#[global_allocator]
+-static GLOBAL: Jemalloc = Jemalloc;
+-
+ #[tokio::main]
+ async fn main() -> std::io::Result<()> {
+     // Install AWS-LC-RS as the default Rustls crypto provider
+--- a/crates/http/src/lib.rs
++++ b/crates/http/src/lib.rs
+@@ -10,6 +10,7 @@
+ pub mod auth;
+ pub mod form;
+ pub mod request;
++mod security_headers;
+ 
+ use common::Inner;
+ use std::sync::Arc;
+--- a/crates/http/src/request.rs
++++ b/crates/http/src/request.rs
+@@ -15,6 +15,7 @@
+         },
+     },
+     form::FormHandler,
++    security_headers::apply_security_headers,
+ };
+ use common::{
+     BuildServer, Inner, KV_ACME, Server,
+@@ -632,7 +633,9 @@
+                     "/../../resources/html-templates/login.html.min"
+                 ));
+ 
+-                return Ok(HtmlResponse::new(page.to_string()).into_http_response());
++                return Ok(HtmlResponse::new(page.to_string())
++                    .into_http_response()
++                    .with_no_store());
+             }
+             external => {
+                 if path.next().is_none() {
+@@ -822,6 +825,10 @@
+                         }
+                     }
+ 
++                    // Enforce the security boundary after configurable headers
++                    // so registry values cannot weaken it.
++                    apply_security_headers(response.headers_mut(), is_tls);
++
+                     Ok::<_, hyper::Error>(response)
+                 }
+             }),
+--- /dev/null
++++ b/crates/http/src/security_headers.rs
+@@ -0,0 +1,126 @@
++/*
++ * SPDX-FileCopyrightText: 2026 The future is private. <contact@thefutureisprivate.dev>
++ *
++ * SPDX-License-Identifier: AGPL-3.0-only
++ */
++
++use hyper::{HeaderMap, header::HeaderValue};
++
++const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data: blob:; manifest-src 'self'; media-src 'self'; object-src 'none'; script-src 'self' 'sha256-DN+qOOjtGVsV8lkg72s4vC1jiBzlp3i4PLyWBwwmEBE='; script-src-attr 'none'; style-src 'self' 'sha256-IrYAgPI84ET8EODnKte3UUBYZgfOwDTW1LIEC+sF1w4='; style-src-attr 'unsafe-inline'; worker-src 'self' blob:";
++const PERMISSIONS_POLICY: &str =
++    "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(), usb=()";
++const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000; includeSubDomains";
++
++pub(crate) fn apply_security_headers(headers: &mut HeaderMap, is_tls: bool) {
++    for (name, value) in [
++        ("content-security-policy", CONTENT_SECURITY_POLICY),
++        ("cross-origin-opener-policy", "same-origin"),
++        ("cross-origin-resource-policy", "same-origin"),
++        ("permissions-policy", PERMISSIONS_POLICY),
++        ("referrer-policy", "no-referrer"),
++        ("x-content-type-options", "nosniff"),
++        ("x-frame-options", "DENY"),
++        ("x-permitted-cross-domain-policies", "none"),
++        ("x-xss-protection", "0"),
++    ] {
++        headers.insert(name, HeaderValue::from_static(value));
++    }
++
++    if is_tls {
++        headers.insert(
++            "strict-transport-security",
++            HeaderValue::from_static(STRICT_TRANSPORT_SECURITY),
++        );
++    } else {
++        headers.remove("strict-transport-security");
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use base64::{Engine, engine::general_purpose::STANDARD};
++    use sha2::{Digest, Sha256};
++
++    fn header<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
++        headers.get(name).unwrap().to_str().unwrap()
++    }
++
++    fn inline_hash(document: &str, tag: &str) -> String {
++        let start_tag = format!("<{tag}>");
++        let end_tag = format!("</{tag}>");
++        let body = document
++            .split_once(&start_tag)
++            .and_then(|(_, rest)| rest.split_once(&end_tag))
++            .map(|(body, _)| body)
++            .expect("inline login resource");
++
++        format!(
++            "sha256-{}",
++            STANDARD.encode(Sha256::digest(body.as_bytes()))
++        )
++    }
++
++    #[test]
++    fn mandatory_headers_override_configurable_values() {
++        let mut headers = HeaderMap::new();
++        headers.insert(
++            "content-security-policy",
++            HeaderValue::from_static("default-src * 'unsafe-eval'"),
++        );
++        headers.insert("x-frame-options", HeaderValue::from_static("SAMEORIGIN"));
++
++        apply_security_headers(&mut headers, true);
++
++        assert_eq!(
++            header(&headers, "content-security-policy"),
++            CONTENT_SECURITY_POLICY
++        );
++        assert_eq!(
++            header(&headers, "strict-transport-security"),
++            STRICT_TRANSPORT_SECURITY
++        );
++        assert_eq!(
++            header(&headers, "cross-origin-opener-policy"),
++            "same-origin"
++        );
++        assert_eq!(
++            header(&headers, "cross-origin-resource-policy"),
++            "same-origin"
++        );
++        assert_eq!(header(&headers, "permissions-policy"), PERMISSIONS_POLICY);
++        assert_eq!(header(&headers, "referrer-policy"), "no-referrer");
++        assert_eq!(header(&headers, "x-content-type-options"), "nosniff");
++        assert_eq!(header(&headers, "x-frame-options"), "DENY");
++        assert_eq!(
++            header(&headers, "x-permitted-cross-domain-policies"),
++            "none"
++        );
++        assert_eq!(header(&headers, "x-xss-protection"), "0");
++        assert!(!CONTENT_SECURITY_POLICY.contains("'unsafe-eval'"));
++        assert!(!CONTENT_SECURITY_POLICY.contains("script-src 'unsafe-inline'"));
++    }
++
++    #[test]
++    fn hsts_is_emitted_only_for_tls() {
++        let mut headers = HeaderMap::new();
++        headers.insert(
++            "strict-transport-security",
++            HeaderValue::from_static("max-age=1"),
++        );
++
++        apply_security_headers(&mut headers, false);
++
++        assert!(!headers.contains_key("strict-transport-security"));
++    }
++
++    #[test]
++    fn csp_allows_only_the_packaged_inline_login_resources() {
++        let login = include_str!("../../../resources/html-templates/login.html.min");
++        let script_hash = inline_hash(login, "script");
++        let style_hash = inline_hash(login, "style");
++
++        assert!(CONTENT_SECURITY_POLICY.contains(&format!("'{script_hash}'")));
++        assert!(CONTENT_SECURITY_POLICY.contains(&format!("'{style_hash}'")));
++    }
++}

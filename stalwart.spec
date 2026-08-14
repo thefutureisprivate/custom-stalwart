@@ -1,8 +1,10 @@
 %global toolchain clang
+%global webui_version 1.0.8
+%global webui_sha256 a3904b571aacca815eee2c38dd86de510d53304babe50b9576760bf70a36c0bf
 
 Name:           stalwart
 Version:        0.16.17
-Release:        1%{?dist}
+Release:        3%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -12,11 +14,21 @@ Source2:        stalwart.service
 Source3:        stalwart.sysusers
 Source4:        stalwart.tmpfiles
 Source5:        stalwart-config.json
-Source6:        stalwart.env
+Source6:        https://github.com/stalwartlabs/webui/releases/download/v%{webui_version}/webui.zip#/%{name}-webui-%{webui_version}.zip
+Source7:        https://raw.githubusercontent.com/stalwartlabs/webui/v%{webui_version}/LICENSES/AGPL-3.0-only.txt#/%{name}-webui-AGPL-3.0-only.txt
+Source8:        particleos_stalwart.te
+Source9:        particleos_stalwart.fc
 # fast-float is unused by Stalwart but is unsound and can segfault on empty
 # input (RUSTSEC-2024-0379 and RUSTSEC-2025-0003). Do not compile it in.
 Patch0:         remove-unused-fast-float.patch
+# Replace upstream's built-in jemalloc, enable release overflow checks, and
+# enforce the ParticleOS HTTP response security policy in the server itself.
+Patch1:         particleos-hardening.patch
+# Keep application assets inside the signed OS payload and ship only the
+# protocol listeners selected by the ParticleOS mail appliance.
+Patch2:         particleos-platform-policy.patch
 
+BuildRequires:  binutils
 BuildRequires:  cargo >= 1.95
 BuildRequires:  clang
 BuildRequires:  cmake
@@ -25,20 +37,27 @@ BuildRequires:  lld
 BuildRequires:  perl
 BuildRequires:  python3
 BuildRequires:  rust >= 1.95
+BuildRequires:  selinux-policy-devel
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  unzip
 BuildRequires:  zstd
 Requires:       group(stalwart)
+Requires:       hardened_malloc
+Requires:       no_rlimit_as
+Requires:       systemd-resolved
 Requires:       user(stalwart)
 ExclusiveArch:  x86_64
 
 %description
-Stalwart is an all-in-one mail and collaboration server supporting SMTP,
-IMAP, JMAP, POP3, ManageSieve, CalDAV, CardDAV, and WebDAV. This ParticleOS
-build is compiled from source with only the PostgreSQL backend and runs
+Stalwart is a mail and collaboration server supporting SMTP, IMAP, JMAP,
+CalDAV, CardDAV, and WebDAV. This ParticleOS build is compiled from source
+with only the PostgreSQL backend, serves an OS-managed WebUI bundle, and runs
 under a dedicated account with a restrictive systemd sandbox.
 
 %prep
 %autosetup -a1 -p1
+
+printf '%s  %s\n' '%{webui_sha256}' '%{SOURCE6}' | sha256sum --check --strict
 
 # The upstream repository contains source under both AGPL-3.0-only and the
 # proprietary Stalwart Enterprise License. Remove all proprietary files and
@@ -56,7 +75,6 @@ export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_DEBUG=1
 export CARGO_PROFILE_RELEASE_INCREMENTAL=false
 export CARGO_PROFILE_RELEASE_LTO=thin
-export CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true
 export CARGO_PROFILE_RELEASE_STRIP=none
 
 # Rust executables are PIE on Fedora. Force the hardened LLVM linker path,
@@ -70,6 +88,10 @@ cargo build \
     --no-default-features \
     --features postgres
 
+install -Dpm0644 %{SOURCE8} selinux/particleos_stalwart.te
+install -Dpm0644 %{SOURCE9} selinux/particleos_stalwart.fc
+make -C selinux -f /usr/share/selinux/devel/Makefile particleos_stalwart.pp
+
 %install
 install -Dpm0755 target/release/stalwart \
     %{buildroot}%{_bindir}/stalwart
@@ -81,11 +103,34 @@ install -Dpm0644 %{SOURCE4} \
     %{buildroot}%{_tmpfilesdir}/stalwart.conf
 install -Dpm0644 %{SOURCE5} \
     %{buildroot}%{_prefix}/lib/stalwart/config.json
-install -Dpm0600 %{SOURCE6} \
-    %{buildroot}%{_prefix}/lib/stalwart/stalwart.env
+install -Dpm0644 %{SOURCE6} \
+    %{buildroot}%{_datadir}/stalwart/webui.zip
+install -Dpm0644 %{SOURCE7} \
+    %{buildroot}%{_licensedir}/%{name}/webui-AGPL-3.0-only.txt
+install -Dpm0644 selinux/particleos_stalwart.pp \
+    %{buildroot}%{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %check
+# Keep the policy attached to the final HTTP response boundary and verify the
+# exact CSP hashes required by Stalwart's packaged login page.
+cargo test --frozen --release -p http@%{version} security_headers::tests
+cargo test --frozen --release -p common@%{version} application::tests
+
+# The WebUI is an immutable, checksum-pinned RPM payload rather than a
+# first-boot network download. Reject a malformed source archive at build time.
+unzip -tq %{SOURCE6}
+test -s selinux/particleos_stalwart.pp
+
+# Production Stalwart must use libc allocation so hardened_malloc can interpose.
+if strings target/release/stalwart | grep -Eq 'tikv[_-]jemalloc|<jemalloc>'; then
+    echo 'The Stalwart binary still contains jemalloc' >&2
+    exit 1
+fi
+
 # Exercise the CLI without starting listeners or touching persistent state.
+# The mailserver image composes this RPM with hardened_malloc from the base
+# repository; keeping it out of BuildRequires avoids rebuilding that package in
+# Stalwart's independent Fedora_44 repository.
 target/release/stalwart --version
 
 %post
@@ -99,6 +144,7 @@ target/release/stalwart --version
 
 %files
 %license LICENSES/AGPL-3.0-only.txt
+%license %{_licensedir}/%{name}/webui-AGPL-3.0-only.txt
 %doc CHANGELOG.md README.md
 %{_bindir}/stalwart
 %{_unitdir}/stalwart.service
@@ -106,9 +152,23 @@ target/release/stalwart --version
 %{_tmpfilesdir}/stalwart.conf
 %dir %{_prefix}/lib/stalwart
 %{_prefix}/lib/stalwart/config.json
-%{_prefix}/lib/stalwart/stalwart.env
+%dir %{_datadir}/stalwart
+%{_datadir}/stalwart/webui.zip
+%{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-3
+- Package the checksum-pinned WebUI inside the signed immutable OS payload
+- Reject runtime WebUI downloads and remove default POP3 and ManageSieve listeners
+- Use local PostgreSQL peer authentication without an environment secret
+- Ship a dedicated confined SELinux domain and file-context policy
+
+* Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-2
+- Replace the built-in jemalloc allocator with preloaded hardened_malloc
+- Enable release-profile integer overflow checks in the patched source
+- Enforce CSP, HSTS on TLS, and browser security headers on every HTTP response
+- Prevent caching of the embedded login and device authorization page
+
 * Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-1
 - Build the AGPL source in OBS with the upstream dependency lock and no network
 - Limit storage support to PostgreSQL and remove the unused vulnerable fast-float crate

@@ -1,0 +1,91 @@
+policy_module(particleos_stalwart, 1.0.0)
+
+type stalwart_t;
+type stalwart_exec_t;
+init_daemon_domain(stalwart_t, stalwart_exec_t)
+
+# ParticleOS mounts the authenticated /usr payload nosuid and starts Stalwart
+# with NoNewPrivileges=yes. Permit only PID 1's existing transition into this
+# dedicated domain under those two kernel execution constraints.
+allow init_t stalwart_t:process2 { nnp_transition nosuid_transition };
+
+type stalwart_etc_t;
+files_config_file(stalwart_etc_t)
+
+type stalwart_state_t;
+files_type(stalwart_state_t)
+
+type stalwart_log_t;
+logging_log_file(stalwart_log_t)
+
+type stalwart_runtime_t;
+files_pid_file(stalwart_runtime_t)
+
+type stalwart_tmp_t;
+files_tmp_file(stalwart_tmp_t)
+systemd_private_tmp(stalwart_tmp_t)
+
+# Runtime, state, and log data are private to the service account. Configuration
+# and the WebUI are root-owned inputs in the immutable OS payload.
+allow stalwart_t stalwart_etc_t:dir list_dir_perms;
+read_files_pattern(stalwart_t, stalwart_etc_t, stalwart_etc_t)
+read_lnk_files_pattern(stalwart_t, stalwart_etc_t, stalwart_etc_t)
+
+manage_dirs_pattern(stalwart_t, stalwart_state_t, stalwart_state_t)
+manage_files_pattern(stalwart_t, stalwart_state_t, stalwart_state_t)
+manage_lnk_files_pattern(stalwart_t, stalwart_state_t, stalwart_state_t)
+
+manage_dirs_pattern(stalwart_t, stalwart_log_t, stalwart_log_t)
+manage_files_pattern(stalwart_t, stalwart_log_t, stalwart_log_t)
+
+manage_dirs_pattern(stalwart_t, stalwart_runtime_t, stalwart_runtime_t)
+manage_files_pattern(stalwart_t, stalwart_runtime_t, stalwart_runtime_t)
+manage_sock_files_pattern(stalwart_t, stalwart_runtime_t, stalwart_runtime_t)
+
+manage_dirs_pattern(stalwart_t, stalwart_tmp_t, stalwart_tmp_t)
+manage_files_pattern(stalwart_t, stalwart_tmp_t, stalwart_tmp_t)
+files_tmp_filetrans(stalwart_t, stalwart_tmp_t, { dir file })
+
+allow stalwart_t self:fifo_file rw_fifo_file_perms;
+allow stalwart_t self:process { getsched signal };
+allow stalwart_t self:tcp_socket create_stream_socket_perms;
+
+# Stalwart resolves through the host stub. nftables independently limits this
+# DNS permission to systemd-resolved on loopback, whose only upstream path is
+# authenticated DNS-over-TLS with local DNSSEC validation.
+sysnet_dns_name_resolve(stalwart_t)
+systemd_chat_resolved(stalwart_t)
+
+# The database is local-only and authenticates the stalwart Unix identity over
+# PostgreSQL's labelled Unix socket. No TCP database permission is granted.
+postgresql_stream_connect(stalwart_t)
+
+# Inbound service ports: SMTP, implicit-TLS submission, implicit-TLS IMAP,
+# HTTPS, and the loopback-only bootstrap HTTP listener. POP3 and ManageSieve
+# port types are deliberately absent.
+corenet_all_recvfrom_netlabel(stalwart_t)
+corenet_all_recvfrom_unlabeled(stalwart_t)
+corenet_tcp_sendrecv_generic_if(stalwart_t)
+corenet_tcp_sendrecv_generic_node(stalwart_t)
+corenet_tcp_bind_generic_node(stalwart_t)
+corenet_tcp_bind_smtp_port(stalwart_t)
+corenet_tcp_bind_cyrus_imapd_port(stalwart_t)
+corenet_tcp_bind_http_port(stalwart_t)
+corenet_tcp_bind_http_cache_port(stalwart_t)
+corenet_tcp_sendrecv_smtp_port(stalwart_t)
+corenet_tcp_sendrecv_cyrus_imapd_port(stalwart_t)
+corenet_tcp_sendrecv_http_port(stalwart_t)
+corenet_tcp_sendrecv_http_cache_port(stalwart_t)
+
+# Outbound delivery and Web PKI/ACME access. The host firewall applies the
+# matching destination-port and per-service-UID limits.
+corenet_tcp_connect_smtp_port(stalwart_t)
+corenet_tcp_connect_http_port(stalwart_t)
+corenet_sendrecv_smtp_client_packets(stalwart_t)
+corenet_sendrecv_http_client_packets(stalwart_t)
+
+dev_read_urand(stalwart_t)
+logging_send_syslog_msg(stalwart_t)
+miscfiles_read_generic_certs(stalwart_t)
+miscfiles_map_generic_certs(stalwart_t)
+miscfiles_read_localization(stalwart_t)

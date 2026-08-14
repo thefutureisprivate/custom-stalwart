@@ -1,0 +1,7 @@
+/usr/bin/stalwart                                -- gen_context(system_u:object_r:stalwart_exec_t,s0)
+/usr/lib/stalwart(/.*)?                             gen_context(system_u:object_r:stalwart_etc_t,s0)
+/usr/share/stalwart(/.*)?                           gen_context(system_u:object_r:stalwart_etc_t,s0)
+/etc/stalwart(/.*)?                                 gen_context(system_u:object_r:stalwart_etc_t,s0)
+/var/lib/stalwart(/.*)?                             gen_context(system_u:object_r:stalwart_state_t,s0)
+/var/log/stalwart(/.*)?                             gen_context(system_u:object_r:stalwart_log_t,s0)
+/run/stalwart(/.*)?                                 gen_context(system_u:object_r:stalwart_runtime_t,s0)

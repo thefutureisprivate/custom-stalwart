@@ -2,7 +2,8 @@
 Description=Stalwart Mail and Collaboration Server
 Documentation=https://stalw.art/docs/
 Wants=network-online.target
-After=network-online.target
+Requires=systemd-resolved.service
+After=network-online.target systemd-resolved.service
 Conflicts=postfix.service sendmail.service exim.service exim4.service
 
 [Service]
@@ -10,7 +11,7 @@ Type=exec
 User=stalwart
 Group=stalwart
 WorkingDirectory=/var/lib/stalwart
-EnvironmentFile=-/etc/stalwart/stalwart.env
+Environment="LD_PRELOAD=libhardened_malloc.so libno_rlimit_as.so"
 ExecStart=/usr/bin/stalwart --config=/etc/stalwart/config.json
 Restart=on-failure
 RestartSec=5s

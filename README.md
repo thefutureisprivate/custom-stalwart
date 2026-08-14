@@ -13,7 +13,27 @@ Fedora 44. Cargo is forced offline and frozen against the vendored upstream
 lock. Only the PostgreSQL backend is enabled; embedded databases, other SQL
 databases, cloud-storage, queue, distributed-coordination, and enterprise code
 are excluded. Vendor filtering is disabled so `respect-lockfile=true` verifies
-the complete upstream lock.
+the complete upstream lock. The upstream jemalloc global allocator is removed
+so the packaged service uses `hardened_malloc`. Its explicit preload preserves
+ParticleOS's `no_rlimit_as` companion library. Rust release-profile integer
+overflow checks are enabled in the patched source rather than only through a
+build-environment override.
+
+Every response is finalized with a non-overridable browser-security policy:
+CSP, TLS-only HSTS, `nosniff`, clickjacking protection, a restrictive referrer
+policy, same-origin opener and resource isolation, a restrictive permissions
+policy, and legacy cross-domain policy denial. The CSP has no `unsafe-eval` or
+general inline-script allowance; its two hashes cover only the packaged login
+page's inline script and style. Inline style attributes remain allowed because
+the current upstream Web UI generates them. Login and device-authorization
+pages are marked `no-store`.
+
+The WebUI is upstream v1.0.8, pinned to the release asset's published
+SHA-256 digest and installed in immutable `/usr`. Stalwart accepts only that
+exact local bundle path, so registry changes cannot recreate its upstream
+first-boot download channel. WebUI changes consequently pass through the same
+OBS build, RPM signature, signed image, and system-update verification as the
+server binary.
 
 ## Approve an update
 
@@ -30,11 +50,24 @@ for stable upstream releases and currently stops for explicit permission:
 5. Commit, wait for the Fedora 44 x86-64 build, then verify the RPM signature,
    hardening flags, file list, and repository publication.
 
-Before enabling the service, create the `stalwart` PostgreSQL database and
-role, then set `STALWART_DB_PASSWORD` in `/etc/stalwart/stalwart.env`. The
-packaged startup configuration connects to PostgreSQL on `127.0.0.1:5432`,
-uses strict certificate validation whenever TLS is enabled, and fails closed
-while the required password is absent.
+The packaged startup configuration connects to the local PostgreSQL Unix
+socket as the `stalwart` operating-system account. PostgreSQL peer
+authentication maps it to the same unprivileged database role, so no database
+password exists in an environment variable or configuration file. The
+ParticleOS mailserver image owns database initialization and provisioning.
+The package also requires `systemd-resolved`; Stalwart has no independent DNS
+egress to external resolvers and uses the local resolved stub exclusively.
+
+The default public protocol set is SMTP 25, implicit-TLS submission 465,
+implicit-TLS IMAP 993, and HTTPS 443. POP3 and ManageSieve are not created by
+the default registry and are not admitted by the ParticleOS firewall.
+
+The RPM also carries a compiled `particleos_stalwart` SELinux policy. The
+mailserver image installs it before the final full-filesystem relabel. The
+domain may read only its labelled configuration and WebUI, manage its labelled
+state/log/runtime trees, connect to PostgreSQL only over its Unix socket,
+resolve through the host stub, and bind or connect only to the selected mail
+and HTTP port types.
 
 Keep both services in `manual` mode. Once unattended updates are approved,
 change the scheduled task from “ask for explicit approval” to “run
