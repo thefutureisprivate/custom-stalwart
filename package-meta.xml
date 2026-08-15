@@ -6,6 +6,6 @@
   </description>
   <build>
     <disable/>
-    <enable arch="x86_64" repository="Fedora_44"/>
+    <enable arch="x86_64" repository="stalwart_Fedora_44"/>
   </build>
 </package>

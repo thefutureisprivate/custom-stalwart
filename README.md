@@ -47,8 +47,11 @@ for stable upstream releases and currently stops for explicit permission:
 3. In the OBS package checkout, run `osc service manualrun`.
 4. Verify the source archive, regenerated vendor archive, dependency graph,
    and `osc diff`.
-5. Commit, wait for the Fedora 44 x86-64 build, then verify the RPM signature,
-   hardening flags, file list, and repository publication.
+5. Commit, wait for the `stalwart_Fedora_44` x86-64 build, then verify the RPM
+   signature, hardening flags, file list, and repository publication. That
+   dedicated repository inherits from stable Fedora 44 updates rather than
+   the live `system:systemd` build lane; the ParticleOS image repository must
+   search it before the general `Fedora_44` repository.
 
 The packaged startup configuration connects to the local PostgreSQL Unix
 socket as the `stalwart` operating-system account. PostgreSQL peer
