@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        9%{?dist}
+Release:        12%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -188,6 +188,10 @@ fi
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-12
+- Start independently of external network availability so counted boots can be
+  health-checked and blessed during provider or DNS outages
+
 * Sat Aug 15 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-9
 - Remove the volatile systemd-rpm-macros build dependency while preserving its scriptlets
 
