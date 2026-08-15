@@ -1,3 +1,240 @@
+--- a/crates/common/src/config/server/listener.rs
++++ b/crates/common/src/config/server/listener.rs
+@@ -61,21 +61,16 @@
+                 }
+             }
+         } else {
++            let port = std::env::var("STALWART_RECOVERY_MODE_PORT")
++                .ok()
++                .and_then(|port| port.parse::<u16>().ok())
++                .unwrap_or(8080);
+             servers.parse_server(
+                 bp,
+                 RegistryObject {
+                     id: ObjectId::new(ObjectType::NetworkListener, Id::singleton()),
+                     object: NetworkListener {
+-                        bind: Map::new(vec![
+-                            SocketAddr::from_str(&format!(
+-                                "[::]:{}",
+-                                std::env::var("STALWART_RECOVERY_MODE_PORT")
+-                                    .ok()
+-                                    .and_then(|p| p.parse::<u16>().ok())
+-                                    .unwrap_or(8080)
+-                            ))
+-                            .unwrap(),
+-                        ]),
++                        bind: particleos_recovery_bindings(port),
+                         name: "http-recovery".to_string(),
+                         protocol: NetworkListenerProtocol::Http,
+                         tls_implicit: false,
+@@ -327,6 +322,29 @@
+     }
+ }
+ 
++fn particleos_recovery_bindings(port: u16) -> Map<SocketAddr> {
++    Map::new(vec![
++        SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap(),
++        SocketAddr::from_str(&format!("[::1]:{port}")).unwrap(),
++    ])
++}
++
++#[cfg(test)]
++mod particleos_tests {
++    use super::*;
++
++    #[test]
++    fn recovery_listener_is_loopback_only() {
++        assert_eq!(
++            particleos_recovery_bindings(8080).as_slice(),
++            [
++                SocketAddr::from_str("127.0.0.1:8080").unwrap(),
++                SocketAddr::from_str("[::1]:8080").unwrap(),
++            ]
++        );
++    }
++}
++
+ fn is_eafnosupport(err: &std::io::Error) -> bool {
+     let code = err.raw_os_error();
+     #[cfg(unix)]
+--- a/crates/common/src/manager/application.rs
++++ b/crates/common/src/manager/application.rs
+@@ -7,7 +7,7 @@
+ use crate::{Server, manager::fetch_resource};
+ use ahash::AHashMap;
+ use arc_swap::ArcSwap;
+-use registry::schema::{enums::CompressionAlgo, structs::Application};
++use registry::schema::structs::Application;
+ use std::{
+     borrow::Cow,
+     io::{self, Cursor, Read},
+@@ -15,14 +15,12 @@
+     sync::Arc,
+     time::Duration,
+ };
+-use store::{
+-    registry::{RegistryObject, bootstrap::Bootstrap},
+-    write::{BatchBuilder, BlobLink, BlobOp, now},
+-};
+-use trc::{AddContext, Key};
++use store::registry::{RegistryObject, bootstrap::Bootstrap};
++use trc::Key;
+ use types::blob_hash::BlobHash;
+ 
+ const APP_BLOB_PREFIX: &str = "STALWART_APP_";
++const PARTICLEOS_WEBUI_URL: &str = "file:///usr/share/stalwart/webui.zip";
+ const MAX_APP_SIZE: usize = 100 * 1024 * 1024;
+ 
+ #[allow(clippy::type_complexity)]
+@@ -37,7 +35,6 @@
+     prefixes: Vec<String>,
+     description: String,
+     url: String,
+-    expiry: u64,
+     blob_key: BlobHash,
+ }
+ 
+@@ -167,7 +164,6 @@
+             blob_key: BlobHash::generate(format!("{}{}", APP_BLOB_PREFIX, app.id.id()).as_bytes()),
+             url: app.object.resource_url,
+             description: app.object.description,
+-            expiry: app.object.auto_update_frequency.as_secs(),
+             prefixes: app
+                 .object
+                 .url_prefix
+@@ -182,68 +178,38 @@
+         }
+     }
+ 
+-    async fn unpack(&self, server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
++    async fn unpack(&self, _server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
++        // ParticleOS application bundles are RPM payloads covered by the OS
++        // signature and immutable /usr Verity tree. Never turn a registry
++        // value into a second, unsigned software update channel.
++        if !is_os_managed_application(&self.url) {
++            return Err(trc::ResourceEvent::Error
++                .caused_by(trc::location!())
++                .ctx(Key::Url, self.url.clone())
++                .details("ParticleOS only permits the packaged Stalwart WebUI bundle"));
++        }
++
+         // Delete any existing bundles
+         self.bundle_path.clean().await.map_err(unpack_error)?;
+ 
+-        // Obtain application bundle
+-        let bundle = if let Some(bundle) = server
+-            .blob_store()
+-            .get_blob(self.blob_key.as_slice(), 0..usize::MAX)
+-            .await?
+-        {
+-            bundle
+-        } else {
+-            // Fetch app bundle
+-            let resource = fetch_resource(&self.url, None, Duration::from_secs(60), MAX_APP_SIZE)
+-                .await
+-                .map_err(|err| {
+-                    trc::ResourceEvent::Error
+-                        .caused_by(trc::location!())
+-                        .ctx(Key::Url, self.url.clone())
+-                        .reason(err)
+-                        .details("Failed to fetch application bundle")
+-                })?;
+-
+-            // Store in blob store for future use
+-            server
+-                .blob_store()
+-                .put_blob(self.blob_key.as_slice(), &resource, CompressionAlgo::None)
+-                .await
+-                .caused_by(trc::location!())?;
+-
+-            // Schedule expiration
+-            let mut batch = BatchBuilder::new();
+-            batch
+-                .set(
+-                    BlobOp::Link {
+-                        hash: self.blob_key.clone(),
+-                        to: BlobLink::Temporary {
+-                            until: now() + self.expiry,
+-                        },
+-                    },
+-                    vec![],
+-                )
+-                .set(
+-                    BlobOp::Commit {
+-                        hash: self.blob_key.clone(),
+-                    },
+-                    Vec::new(),
+-                );
+-            server
+-                .store()
+-                .write(batch.build_all())
+-                .await
+-                .caused_by(trc::location!())?;
+-
+-            trc::event!(
+-                Resource(trc::ResourceEvent::ApplicationUpdated),
+-                Url = self.url.clone(),
+-                Details = self.description.clone(),
+-            );
++        // Read the immutable RPM payload on every process start. A blob-store
++        // key based only on the registry Application ID can otherwise survive
++        // an OS update and keep serving an older WebUI from mutable state.
++        let bundle = fetch_resource(&self.url, None, Duration::from_secs(60), MAX_APP_SIZE)
++            .await
++            .map_err(|err| {
++                trc::ResourceEvent::Error
++                    .caused_by(trc::location!())
++                    .ctx(Key::Url, self.url.clone())
++                    .reason(err)
++                    .details("Failed to read OS-managed application bundle")
++            })?;
+ 
+-            resource
+-        };
++        trc::event!(
++            Resource(trc::ResourceEvent::ApplicationUpdated),
++            Url = self.url.clone(),
++            Details = self.description.clone(),
++        );
+ 
+         let url = self.url.clone();
+         let bundle_path = self.bundle_path.path.clone();
+@@ -325,6 +291,10 @@
+     }
+ }
+ 
++fn is_os_managed_application(url: &str) -> bool {
++    url == PARTICLEOS_WEBUI_URL
++}
++
+ impl Resource<Vec<u8>> {
+     pub fn is_empty(&self) -> bool {
+         self.content_type.is_empty() && self.contents.is_empty()
+@@ -366,3 +336,24 @@
+         Self::new()
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn only_the_immutable_os_webui_is_accepted() {
++        assert!(is_os_managed_application(
++            "file:///usr/share/stalwart/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "https://github.com/stalwartlabs/webui/releases/latest/download/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "file:///var/lib/stalwart/webui.zip"
++        ));
++        assert!(!is_os_managed_application(
++            "file:///usr/share/stalwart/../untrusted.zip"
++        ));
++    }
++}
 --- a/crates/common/src/manager/defaults.rs
 +++ b/crates/common/src/manager/defaults.rs
 @@ -46,6 +46,31 @@
@@ -32,7 +269,7 @@
  async fn insert_safe_defaults(bp: &mut Bootstrap) -> trc::Result<()> {
      let is_recovery_mode = bp.registry.is_recovery_mode();
      let is_bootstrap_mode = bp.registry.is_bootstrap_mode();
-@@ -55,23 +80,24 @@
+@@ -55,15 +80,10 @@
          bp.registry
              .write(RegistryWrite::insert(
                  &Application {
@@ -50,8 +287,7 @@
                      unpack_directory: None,
                      url_prefix: Map::new(vec!["/admin".into(), "/account".into()]),
                  }
-                 .into(),
-             ))
+@@ -72,6 +92,12 @@
              .await?;
      }
  
@@ -124,66 +360,234 @@
 +        }
 +    }
 +}
---- a/crates/common/src/manager/application.rs
-+++ b/crates/common/src/manager/application.rs
-@@ -23,6 +23,7 @@
- use types::blob_hash::BlobHash;
+--- a/crates/main/src/main.rs
++++ b/crates/main/src/main.rs
+@@ -16,7 +16,7 @@
+ use pop3::Pop3SessionManager;
+ use services::{StartServices, broadcast::subscriber::spawn_broadcast_subscriber};
+ use smtp::{StartQueueManager, core::SmtpSessionManager};
+-use std::time::Duration;
++use std::{io, time::Duration};
+ use trc::Collector;
+ use utils::wait_for_shutdown;
  
- const APP_BLOB_PREFIX: &str = "STALWART_APP_";
-+const PARTICLEOS_WEBUI_URL: &str = "file:///usr/share/stalwart/webui.zip";
- const MAX_APP_SIZE: usize = 100 * 1024 * 1024;
- 
- #[allow(clippy::type_complexity)]
-@@ -183,6 +184,16 @@
-     }
- 
-     async fn unpack(&self, server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
-+        // ParticleOS application bundles are RPM payloads covered by the OS
-+        // signature and immutable /usr Verity tree. Never turn a registry
-+        // value into a second, unsigned software update channel.
-+        if !is_os_managed_application(&self.url) {
-+            return Err(trc::ResourceEvent::Error
-+                .caused_by(trc::location!())
-+                .ctx(Key::Url, self.url.clone())
-+                .details("ParticleOS only permits the packaged Stalwart WebUI bundle"));
-+        }
+@@ -38,9 +38,24 @@
+         trc::event!(
+             Server(trc::ServerEvent::StartupError),
+             Details = "Failed to migrate database, aborting startup.",
+-            Reason = err,
++            Reason = err.clone(),
+         );
+-        return Ok(());
++        return Err(io::Error::other(format!(
++            "Stalwart database migration failed: {err}"
++        )));
++    }
 +
-         // Delete any existing bundles
-         self.bundle_path.clean().await.map_err(unpack_error)?;
- 
-@@ -325,6 +336,10 @@
++    // Expose the selected startup mode only after the datastore and its
++    // migrations are usable. ParticleOS' local health gate uses this file to
++    // distinguish a supported first-boot recovery UI from the normal mail
++    // protocol profile without trying to infer state from open sockets.
++    if let Some(path) = std::env::var_os("PARTICLEOS_RUNTIME_MODE_FILE").filter(|p| !p.is_empty()) {
++        tokio::fs::write(
++            path,
++            particleos_runtime_mode(init.bootstrap.registry.is_recovery_mode()),
++        )
++        .await
++        .map_err(|err| io::Error::other(format!("Failed to publish startup mode: {err}")))?;
      }
- }
  
-+fn is_os_managed_application(url: &str) -> bool {
-+    url == PARTICLEOS_WEBUI_URL
+     // Init services
+@@ -119,3 +134,22 @@
+ 
+     Ok(())
+ }
++
++fn particleos_runtime_mode(is_recovery_mode: bool) -> &'static [u8] {
++    if is_recovery_mode {
++        b"recovery\n"
++    } else {
++        b"normal\n"
++    }
 +}
 +
- impl Resource<Vec<u8>> {
-     pub fn is_empty(&self) -> bool {
-         self.content_type.is_empty() && self.contents.is_empty()
-@@ -366,3 +381,24 @@
-         Self::new()
-     }
- }
-+
 +#[cfg(test)]
-+mod tests {
++mod particleos_tests {
 +    use super::*;
 +
 +    #[test]
-+    fn only_the_immutable_os_webui_is_accepted() {
-+        assert!(is_os_managed_application(
-+            "file:///usr/share/stalwart/webui.zip"
-+        ));
-+        assert!(!is_os_managed_application(
-+            "https://github.com/stalwartlabs/webui/releases/latest/download/webui.zip"
-+        ));
-+        assert!(!is_os_managed_application(
-+            "file:///var/lib/stalwart/webui.zip"
-+        ));
-+        assert!(!is_os_managed_application(
-+            "file:///usr/share/stalwart/../untrusted.zip"
-+        ));
++    fn runtime_mode_is_unambiguous() {
++        assert_eq!(particleos_runtime_mode(true), b"recovery\n");
++        assert_eq!(particleos_runtime_mode(false), b"normal\n");
++    }
++}
+--- a/crates/store/src/build/registry.rs
++++ b/crates/store/src/build/registry.rs
+@@ -17,10 +17,13 @@
+ };
+ use rand::{RngExt, distr::Alphanumeric, rng};
+ use registry::{
+-    schema::{enums::ClusterNodeStatus, structs::ClusterNode},
++    schema::{
++        enums::ClusterNodeStatus,
++        structs::{Account, ClusterNode, Credential, UserRoles},
++    },
+     types::datetime::UTCDateTime,
+ };
+-use std::{path::PathBuf, time::Duration};
++use std::{path::PathBuf, sync::Arc, time::Duration};
+ use trc::AddContext;
+ 
+ const STALE_NODE_TIMEOUT: u64 = 60 * 60; // 1 hour
+@@ -39,36 +42,40 @@
+                 inner.env_recovery_mode = true;
+ 
+                 if inner.env_recovery_admin.is_none() {
+-                    let password = rng()
+-                        .sample_iter(Alphanumeric)
+-                        .take(16)
+-                        .map(char::from)
+-                        .collect::<String>();
+-                    eprintln!();
+-                    eprintln!("════════════════════════════════════════════════════════════");
+-                    eprintln!("🔑 Stalwart bootstrap mode - temporary administrator account");
+-                    eprintln!();
+-                    eprintln!("   username: admin");
+-                    eprintln!("   password: {password}");
+-                    eprintln!();
+-                    eprintln!("Use these credentials to complete the initial setup at the");
+-                    eprintln!("/admin web UI. Once setup is done, Stalwart will provision a");
+-                    eprintln!("permanent administrator and this temporary account will no");
+-                    eprintln!("longer apply.");
+-                    eprintln!();
+-                    eprintln!("This password is shown only once. To pin a credential");
+-                    eprintln!("instead, set STALWART_RECOVERY_ADMIN=admin:<password> in the");
+-                    eprintln!("env file.");
+-                    eprintln!("════════════════════════════════════════════════════════════");
+-                    eprintln!();
+-                    inner.env_recovery_admin = Some(("admin".to_string(), password));
++                    inner.env_recovery_admin = Some(generate_temporary_admin());
+                 }
+ 
+                 EphemeralStore::open()
+             }
+         };
+ 
+-        Self::from_inner(inner).await
++        let mut registry = Self::from_inner(inner).await?;
++
++        // ParticleOS always requests recovery mode so a fresh PostgreSQL
++        // registry cannot start without a supported administrator credential.
++        // Once the operator creates a password-bearing administrator, leave
++        // recovery mode automatically on the next service start. Upstream's
++        // explicit recovery behavior is unchanged unless the ParticleOS-only
++        // opt-in is also present.
++        if registry.is_recovery_mode() && particleos_auto_recovery_mode() {
++            let has_admin = registry
++                .list::<Account>()
++                .await
++                .map_err(|err| format!("Failed to inspect administrator credentials: {err}"))?
++                .iter()
++                .any(|account| particleos_has_administrator_credential(&account.object));
++            let inner = Arc::get_mut(&mut registry.0)
++                .ok_or_else(|| "Failed to configure ParticleOS recovery mode".to_string())?;
++
++            if has_admin {
++                inner.env_recovery_mode = false;
++                inner.env_recovery_admin = None;
++            } else if inner.env_recovery_admin.is_none() {
++                inner.env_recovery_admin = Some(generate_temporary_admin());
++            }
++        }
++
++        Ok(registry)
+     }
+ 
+     pub fn from_inner_bootstrapped(inner: RegistryStoreInner) -> Self {
+@@ -335,3 +342,86 @@
+         .unwrap()
+     }
+ }
++
++fn particleos_auto_recovery_mode() -> bool {
++    std::env::var("PARTICLEOS_AUTO_RECOVERY_MODE")
++        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
++}
++
++fn particleos_has_administrator_credential(account: &Account) -> bool {
++    matches!(
++        account,
++        Account::User(user)
++            if matches!(&user.roles, UserRoles::Admin)
++                && user.credentials.iter().any(|credential| matches!(
++                    credential,
++                    Credential::Password(password)
++                        if !password.secret.is_empty()
++                            && password.expires_at.is_none_or(|expiry| expiry > UTCDateTime::now())
++                ))
++    )
++}
++
++fn generate_temporary_admin() -> (String, String) {
++    let password = rng()
++        .sample_iter(Alphanumeric)
++        .take(20)
++        .map(char::from)
++        .collect::<String>();
++    eprintln!();
++    eprintln!("════════════════════════════════════════════════════════════");
++    eprintln!("🔑 Stalwart recovery mode - temporary administrator account");
++    eprintln!();
++    eprintln!("   username: admin");
++    eprintln!("   password: {password}");
++    eprintln!();
++    eprintln!("Use these credentials to complete the initial setup at the");
++    eprintln!("/admin web UI. Once setup is done, Stalwart will use the");
++    eprintln!("permanent administrator and this temporary account will no");
++    eprintln!("longer apply.");
++    eprintln!("════════════════════════════════════════════════════════════");
++    eprintln!();
++    ("admin".to_string(), password)
++}
++
++#[cfg(test)]
++mod particleos_tests {
++    use super::*;
++    use registry::{
++        schema::structs::{PasswordCredential, UserAccount},
++        types::list::List,
++    };
++
++    #[test]
++    fn recovery_requires_a_password_bearing_administrator() {
++        let mut admin = UserAccount {
++            roles: UserRoles::Admin,
++            ..Default::default()
++        };
++        assert!(!particleos_has_administrator_credential(&Account::User(
++            admin.clone()
++        )));
++
++        admin.credentials = List::from(vec![Credential::Password(PasswordCredential {
++            secret: "hashed-secret".to_string(),
++            ..Default::default()
++        })]);
++        assert!(particleos_has_administrator_credential(&Account::User(
++            admin.clone()
++        )));
++
++        if let Credential::Password(password) =
++            admin.credentials.inner_mut().values_mut().next().unwrap()
++        {
++            password.expires_at = Some(UTCDateTime::from_timestamp(1));
++        }
++        assert!(!particleos_has_administrator_credential(&Account::User(
++            admin.clone()
++        )));
++
++        admin.roles = UserRoles::User;
++        assert!(!particleos_has_administrator_credential(&Account::User(
++            admin
++        )));
 +    }
 +}

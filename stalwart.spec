@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        7%{?dist}
+Release:        8%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -105,6 +105,22 @@ install -Dpm0644 %{SOURCE5} \
     %{buildroot}%{_prefix}/lib/stalwart/config.json
 install -Dpm0644 %{SOURCE6} \
     %{buildroot}%{_datadir}/stalwart/webui.zip
+# Stalwart rewrites this base URL while serving /account. Publish the exact
+# expected response digest so the image health gate can detect a stale or
+# mismatched runtime bundle without duplicating a version-specific hash.
+install -d -m0755 %{buildroot}%{_datadir}/stalwart
+unzip -p %{SOURCE6} index.html \
+    | sed 's#<base href="/"#<base href="/account/"#' \
+    | sha256sum \
+    | awk '{print $1}' \
+    >%{buildroot}%{_datadir}/stalwart/webui-account.sha256
+chmod 0644 %{buildroot}%{_datadir}/stalwart/webui-account.sha256
+unzip -p %{SOURCE6} index.html \
+    | sed 's#<base href="/"#<base href="/admin/"#' \
+    | sha256sum \
+    | awk '{print $1}' \
+    >%{buildroot}%{_datadir}/stalwart/webui-admin.sha256
+chmod 0644 %{buildroot}%{_datadir}/stalwart/webui-admin.sha256
 install -Dpm0644 %{SOURCE7} \
     %{buildroot}%{_licensedir}/%{name}/webui-AGPL-3.0-only.txt
 install -Dpm0644 selinux/particleos_stalwart.pp \
@@ -116,6 +132,10 @@ install -Dpm0644 selinux/particleos_stalwart.pp \
 cargo test --frozen --release -p http@%{version} security_headers::tests
 cargo test --frozen --release -p common@%{version} application::tests
 cargo test --frozen --release -p common@%{version} defaults::tests
+cargo test --frozen --release -p common@%{version} listener::particleos_tests
+cargo test --frozen --release -p store@%{version} particleos_tests
+cargo test --frozen --release -p stalwart@%{version} particleos_tests \
+    --no-default-features --features postgres
 
 # The WebUI is an immutable, checksum-pinned RPM payload rather than a
 # first-boot network download. Reject a malformed source archive at build time.
@@ -155,9 +175,17 @@ target/release/stalwart --version
 %{_prefix}/lib/stalwart/config.json
 %dir %{_datadir}/stalwart
 %{_datadir}/stalwart/webui.zip
+%{_datadir}/stalwart/webui-admin.sha256
+%{_datadir}/stalwart/webui-account.sha256
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Sat Aug 15 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-8
+- Start fresh installations in loopback-only recovery mode with a temporary admin
+- Exit nonzero when database migration or runtime-mode publication fails
+- Always load the WebUI from the immutable RPM instead of a mutable blob cache
+- Publish the served WebUI digest for protocol-aware image health verification
+
 * Fri Aug 14 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-7
 - Validate DANE DNSSEC data through systemd-resolved's local TCP proxy stub
 
