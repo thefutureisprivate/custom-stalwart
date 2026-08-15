@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        8%{?dist}
+Release:        9%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -38,7 +38,6 @@ BuildRequires:  perl
 BuildRequires:  python3
 BuildRequires:  rust >= 1.95
 BuildRequires:  selinux-policy-devel
-BuildRequires:  systemd-rpm-macros
 BuildRequires:  unzip
 BuildRequires:  zstd
 Requires:       group(stalwart)
@@ -96,11 +95,11 @@ make -C selinux -f /usr/share/selinux/devel/Makefile particleos_stalwart.pp
 install -Dpm0755 target/release/stalwart \
     %{buildroot}%{_bindir}/stalwart
 install -Dpm0644 %{SOURCE2} \
-    %{buildroot}%{_unitdir}/stalwart.service
+    %{buildroot}%{_prefix}/lib/systemd/system/stalwart.service
 install -Dpm0644 %{SOURCE3} \
-    %{buildroot}%{_sysusersdir}/stalwart.conf
+    %{buildroot}%{_prefix}/lib/sysusers.d/stalwart.conf
 install -Dpm0644 %{SOURCE4} \
-    %{buildroot}%{_tmpfilesdir}/stalwart.conf
+    %{buildroot}%{_prefix}/lib/tmpfiles.d/stalwart.conf
 install -Dpm0644 %{SOURCE5} \
     %{buildroot}%{_prefix}/lib/stalwart/config.json
 install -Dpm0644 %{SOURCE6} \
@@ -155,22 +154,31 @@ fi
 target/release/stalwart --version
 
 %post
-%systemd_post stalwart.service
+if [ -x /usr/lib/systemd/systemd-update-helper ]; then
+    /usr/lib/systemd/systemd-update-helper install-system-units \
+        stalwart.service || :
+fi
 
 %preun
-%systemd_preun stalwart.service
+if [ "$1" -eq 0 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
+    /usr/lib/systemd/systemd-update-helper remove-system-units \
+        stalwart.service || :
+fi
 
 %postun
-%systemd_postun_with_restart stalwart.service
+if [ "$1" -ge 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units \
+        stalwart.service || :
+fi
 
 %files
 %license LICENSES/AGPL-3.0-only.txt
 %license %{_licensedir}/%{name}/webui-AGPL-3.0-only.txt
 %doc CHANGELOG.md README.md
 %{_bindir}/stalwart
-%{_unitdir}/stalwart.service
-%{_sysusersdir}/stalwart.conf
-%{_tmpfilesdir}/stalwart.conf
+%{_prefix}/lib/systemd/system/stalwart.service
+%{_prefix}/lib/sysusers.d/stalwart.conf
+%{_prefix}/lib/tmpfiles.d/stalwart.conf
 %dir %{_prefix}/lib/stalwart
 %{_prefix}/lib/stalwart/config.json
 %dir %{_datadir}/stalwart
@@ -180,6 +188,9 @@ target/release/stalwart --version
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
 %changelog
+* Sat Aug 15 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-9
+- Remove the volatile systemd-rpm-macros build dependency while preserving its scriptlets
+
 * Sat Aug 15 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-8
 - Start fresh installations in loopback-only recovery mode with a temporary admin
 - Exit nonzero when database migration or runtime-mode publication fails
