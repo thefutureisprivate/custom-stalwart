@@ -1,10 +1,11 @@
 %global toolchain clang
 %global webui_version 1.0.8
 %global webui_sha256 a3904b571aacca815eee2c38dd86de510d53304babe50b9576760bf70a36c0bf
+%global package_release 19
 
 Name:           stalwart
 Version:        0.16.17
-Release:        18%{?dist}
+Release:        %{package_release}%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -130,6 +131,10 @@ install -Dpm0644 %{SOURCE4} \
     %{buildroot}%{_prefix}/lib/tmpfiles.d/stalwart.conf
 install -Dpm0644 %{SOURCE5} \
     %{buildroot}%{_prefix}/lib/stalwart/config.json
+printf 'STALWART_VERSION=%s\nSTALWART_PACKAGE_RELEASE=%s\n' \
+    '%{version}' '%{package_release}' \
+    >%{buildroot}%{_prefix}/lib/stalwart/package-release
+chmod 0644 %{buildroot}%{_prefix}/lib/stalwart/package-release
 install -Dpm0644 %{SOURCE6} \
     %{buildroot}%{_datadir}/stalwart/webui.zip
 # Stalwart rewrites this base URL while serving /account. Publish the exact
@@ -168,6 +173,10 @@ cargo test --frozen --release -p stalwart@%{version} particleos_tests \
 # a first-boot network download. Reject a malformed source archive at build time.
 unzip -tq %{SOURCE6}
 test -s selinux/particleos_stalwart.pp
+grep -Fqx 'STALWART_VERSION=%{version}' \
+    %{buildroot}%{_prefix}/lib/stalwart/package-release
+grep -Fqx 'STALWART_PACKAGE_RELEASE=%{package_release}' \
+    %{buildroot}%{_prefix}/lib/stalwart/package-release
 
 # Production Stalwart must use libc allocation so hardened_malloc can interpose.
 if strings target/release/stalwart | grep -Eq 'tikv[_-]jemalloc|<jemalloc>'; then
@@ -208,6 +217,7 @@ fi
 %{_datadir}/stalwart/webui.zip
 %{_datadir}/stalwart/webui-admin.sha256
 %{_datadir}/stalwart/webui-account.sha256
+%{_prefix}/lib/stalwart/package-release
 
 %files particleos-user
 %{_prefix}/lib/sysusers.d/stalwart.conf
@@ -222,6 +232,9 @@ fi
 %{_prefix}/lib/stalwart/config.json
 
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-19
+- Embed authoritative RPM version metadata for service-image build validation
+
 * Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-18
 - Permit the transient verifier to write only manager-private metadata output
 
