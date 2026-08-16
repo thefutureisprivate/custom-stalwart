@@ -33,6 +33,10 @@ files_type(stalwart_image_t)
 allow init_t stalwart_image_t:dir list_dir_perms;
 allow init_t stalwart_image_t:file read_file_perms;
 allow init_t stalwart_image_t:lnk_file read_lnk_file_perms;
+# systemd first probes whether a regular-file image can be opened writable and
+# then falls back to the requested read-only loop device. Keep the protected
+# image immutable without logging that expected fallback probe on every start.
+dontaudit init_t stalwart_image_t:file write;
 
 # systemd-sysupdate hands URL acquisition to the deliberately confined import
 # helper. Give that domain a separate staging type instead of write access to
@@ -78,8 +82,10 @@ allow init_t stalwart_image_manager_tmp_t:file { getattr write append };
 # systemd performs a second SELinux authorization check before it starts a
 # transient RootImage unit. The refpolicy transient-unit interface covers the
 # service class; current systemd also checks the system class explicitly.
-# Permit only starting a unit through PID 1, not the other system operations.
-allow stalwart_image_manager_t init_t:system start;
+# Permit only starting and observing the transient verifier through PID 1, not
+# the other system operations. systemd-run --wait needs status to propagate the
+# verifier's result back to the manager.
+allow stalwart_image_manager_t init_t:system { start status };
 
 allow stalwart_image_manager_t self:fifo_file rw_fifo_file_perms;
 allow stalwart_image_manager_t self:process { getsched signal };
