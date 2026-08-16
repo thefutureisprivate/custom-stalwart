@@ -69,6 +69,12 @@ systemd_private_tmp(stalwart_image_manager_tmp_t)
 manage_files_pattern(stalwart_image_manager_t, stalwart_image_manager_tmp_t, stalwart_image_manager_tmp_t)
 files_tmp_filetrans(stalwart_image_manager_t, stalwart_image_manager_tmp_t, file)
 
+# systemd-run --pipe passes the manager-opened private metadata output to the
+# transient init_t verifier. PID 1 may use that descriptor and write only this
+# ephemeral type; it still has no write access to the protected image store.
+allow init_t stalwart_image_manager_t:fd use;
+allow init_t stalwart_image_manager_tmp_t:file { getattr write append };
+
 allow stalwart_image_manager_t self:fifo_file rw_fifo_file_perms;
 allow stalwart_image_manager_t self:process { getsched signal };
 corecmd_exec_bin(stalwart_image_manager_t)

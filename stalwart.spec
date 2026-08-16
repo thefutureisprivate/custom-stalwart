@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        17%{?dist}
+Release:        18%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -222,6 +222,9 @@ fi
 %{_prefix}/lib/stalwart/config.json
 
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-18
+- Permit the transient verifier to write only manager-private metadata output
+
 * Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-17
 - Permit the dedicated image manager to execute the labelled systemctl client
 
