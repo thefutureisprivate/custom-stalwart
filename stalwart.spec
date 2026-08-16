@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        12%{?dist}
+Release:        13%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -40,18 +40,46 @@ BuildRequires:  rust >= 1.95
 BuildRequires:  selinux-policy-devel
 BuildRequires:  unzip
 BuildRequires:  zstd
-Requires:       group(stalwart)
 Requires:       hardened_malloc
 Requires:       no_rlimit_as
-Requires:       systemd-resolved
-Requires:       user(stalwart)
 ExclusiveArch:  x86_64
 
 %description
 Stalwart is a mail and collaboration server supporting SMTP, IMAP, JMAP,
 CalDAV, CardDAV, and WebDAV. This ParticleOS build is compiled from source
-with only the PostgreSQL backend, serves an OS-managed WebUI bundle, and runs
-under a dedicated account with a restrictive systemd sandbox.
+with only the PostgreSQL backend, serves a packaged WebUI bundle, and runs under
+a dedicated account with a restrictive systemd sandbox.
+
+%package particleos-user
+Summary:        Stable ParticleOS identity for Stalwart
+BuildArch:      noarch
+
+%description particleos-user
+Defines the fixed Stalwart system identity shared by the ParticleOS host and
+the verified Stalwart service image. The fixed ID preserves Unix peer
+authentication and nftables identity matching across independent updates.
+
+%package selinux
+Summary:        ParticleOS SELinux policy for Stalwart
+Requires:       selinux-policy-targeted
+BuildArch:      noarch
+
+%description selinux
+Installs the dedicated Stalwart SELinux policy used by the ParticleOS host and
+by the dm-verity-protected Stalwart service image.
+
+%package particleos-host
+Summary:        ParticleOS host integration for the Stalwart service image
+Requires:       stalwart-particleos-user = %{version}-%{release}
+Requires:       stalwart-selinux = %{version}-%{release}
+Requires:       systemd-resolved
+BuildArch:      noarch
+
+%description particleos-host
+Provides only the systemd unit, immutable configuration seed, and persistent
+directory definitions needed to run Stalwart from a signed systemd RootImage.
+The Stalwart executable, WebUI, allocator, and runtime libraries are not
+installed on the host.
 
 %prep
 %autosetup -a1 -p1
@@ -136,8 +164,8 @@ cargo test --frozen --release -p store@%{version} particleos_tests
 cargo test --frozen --release -p stalwart@%{version} particleos_tests \
     --no-default-features --features postgres
 
-# The WebUI is an immutable, checksum-pinned RPM payload rather than a
-# first-boot network download. Reject a malformed source archive at build time.
+# The WebUI is an immutable, checksum-pinned service-image payload rather than
+# a first-boot network download. Reject a malformed source archive at build time.
 unzip -tq %{SOURCE6}
 test -s selinux/particleos_stalwart.pp
 
@@ -153,19 +181,19 @@ fi
 # Stalwart's independent Fedora_44 repository.
 target/release/stalwart --version
 
-%post
+%post particleos-host
 if [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper install-system-units \
         stalwart.service || :
 fi
 
-%preun
+%preun particleos-host
 if [ "$1" -eq 0 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper remove-system-units \
         stalwart.service || :
 fi
 
-%postun
+%postun particleos-host
 if [ "$1" -ge 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper mark-restart-system-units \
         stalwart.service || :
@@ -176,18 +204,28 @@ fi
 %license %{_licensedir}/%{name}/webui-AGPL-3.0-only.txt
 %doc CHANGELOG.md README.md
 %{_bindir}/stalwart
-%{_prefix}/lib/systemd/system/stalwart.service
-%{_prefix}/lib/sysusers.d/stalwart.conf
-%{_prefix}/lib/tmpfiles.d/stalwart.conf
-%dir %{_prefix}/lib/stalwart
-%{_prefix}/lib/stalwart/config.json
 %dir %{_datadir}/stalwart
 %{_datadir}/stalwart/webui.zip
 %{_datadir}/stalwart/webui-admin.sha256
 %{_datadir}/stalwart/webui-account.sha256
+
+%files particleos-user
+%{_prefix}/lib/sysusers.d/stalwart.conf
+
+%files selinux
 %{_datadir}/selinux/packages/particleos_stalwart.pp
 
+%files particleos-host
+%{_prefix}/lib/systemd/system/stalwart.service
+%{_prefix}/lib/tmpfiles.d/stalwart.conf
+%dir %{_prefix}/lib/stalwart
+%{_prefix}/lib/stalwart/config.json
+
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-13
+- Split the host integration, stable identity, and SELinux policy from the
+  executable payload for a signed dm-verity systemd RootImage runtime
+
 * Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-12
 - Start independently of external network availability so counted boots can be
   health-checked and blessed during provider or DNS outages

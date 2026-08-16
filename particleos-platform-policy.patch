@@ -108,8 +108,8 @@
  
 -    async fn unpack(&self, server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
 +    async fn unpack(&self, _server: &Server) -> trc::Result<AHashMap<String, Resource<PathBuf>>> {
-+        // ParticleOS application bundles are RPM payloads covered by the OS
-+        // signature and immutable /usr Verity tree. Never turn a registry
++        // ParticleOS application bundles are RPM payloads covered by the signed
++        // service image's immutable Verity tree. Never turn a registry
 +        // value into a second, unsigned software update channel.
 +        if !is_os_managed_application(&self.url) {
 +            return Err(trc::ResourceEvent::Error
@@ -176,9 +176,9 @@
 -                Url = self.url.clone(),
 -                Details = self.description.clone(),
 -            );
-+        // Read the immutable RPM payload on every process start. A blob-store
-+        // key based only on the registry Application ID can otherwise survive
-+        // an OS update and keep serving an older WebUI from mutable state.
++        // Read the immutable service-image payload on every process start. A
++        // blob-store key based only on the registry Application ID can otherwise
++        // survive an image update and keep serving an older WebUI from state.
 +        let bundle = fetch_resource(&self.url, None, Duration::from_secs(60), MAX_APP_SIZE)
 +            .await
 +            .map_err(|err| {
@@ -186,7 +186,7 @@
 +                    .caused_by(trc::location!())
 +                    .ctx(Key::Url, self.url.clone())
 +                    .reason(err)
-+                    .details("Failed to read OS-managed application bundle")
++                    .details("Failed to read ParticleOS application bundle")
 +            })?;
  
 -            resource

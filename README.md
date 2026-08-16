@@ -80,8 +80,11 @@ for that Fedora type to provide IMAPS. This does not enable POP: the compiled
 registry defaults omit POP listeners, the image health gate rejects unexpected
 legacy listeners, and nftables exposes only the four documented public ports.
 
-The RPM also carries a compiled `particleos_stalwart` SELinux policy. The
-mailserver image installs it before the final full-filesystem relabel. The
+The source package emits separate runtime, fixed-identity, host-integration,
+and SELinux-policy RPMs. ParticleOS installs only the host integration,
+identity, and policy packages in the OS image; the runtime RPM is installed
+only in the signed dm-verity Stalwart service image. The mailserver image
+installs the policy before the final full-filesystem relabel. The
 domain may read only its labelled configuration and WebUI, manage its labelled
 state/log/runtime trees, connect to PostgreSQL only over its Unix socket,
 resolve through the host stub, and bind or connect only to the selected mail

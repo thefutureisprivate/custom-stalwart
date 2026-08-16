@@ -1,8 +1,8 @@
 [Unit]
 Description=Stalwart Mail and Collaboration Server
 Documentation=https://stalw.art/docs/
-Requires=systemd-resolved.service
-After=systemd-resolved.service
+Requires=particleos-stalwart-image-setup.service systemd-resolved.service
+After=particleos-stalwart-image-setup.service systemd-resolved.service
 Conflicts=postfix.service sendmail.service exim.service exim4.service
 
 [Service]
@@ -11,6 +11,13 @@ User=stalwart
 Group=stalwart
 WorkingDirectory=/var/lib/stalwart
 Environment="LD_PRELOAD=libhardened_malloc.so libno_rlimit_as.so"
+RootImage=/var/lib/particleos/stalwart/current.raw
+RootImageOptions=root:ro,nosuid,nodev
+RootImagePolicy=root=verity+signed+read-only-on+erofs:=absent
+BindReadOnlyPaths=/etc/stalwart
+BindPaths=/run/postgresql
+ExecStartPre=/usr/bin/cp /usr/share/stalwart/webui-account.sha256 /run/stalwart/webui-account.sha256
+ExecStartPre=/usr/bin/cp /usr/share/stalwart/webui-admin.sha256 /run/stalwart/webui-admin.sha256
 ExecStart=/usr/bin/stalwart --config=/etc/stalwart/config.json
 Restart=on-failure
 RestartSec=5s

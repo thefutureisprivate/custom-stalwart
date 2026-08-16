@@ -21,6 +21,15 @@ logging_log_file(stalwart_log_t)
 type stalwart_runtime_t;
 files_pid_file(stalwart_runtime_t)
 
+# PID 1 opens the selected signed DDI before transitioning the executable into
+# stalwart_t. The image remains root-owned and read-only on the encrypted host
+# root; its embedded PKCS#7 root-hash signature is the authorization boundary.
+type stalwart_image_t;
+files_type(stalwart_image_t)
+allow init_t stalwart_image_t:dir list_dir_perms;
+allow init_t stalwart_image_t:file read_file_perms;
+allow init_t stalwart_image_t:lnk_file read_lnk_file_perms;
+
 type stalwart_tmp_t;
 files_tmp_file(stalwart_tmp_t)
 systemd_private_tmp(stalwart_tmp_t)

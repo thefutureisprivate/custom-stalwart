@@ -1,2 +1,2 @@
 #Type Name      ID GECOS                         Home directory     Shell
-u     stalwart  -  "Stalwart Mail Server"       /var/lib/stalwart  -
+u     stalwart  993:993  "Stalwart Mail Server" /var/lib/stalwart  -
