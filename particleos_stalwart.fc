@@ -5,5 +5,6 @@
 /var/lib/stalwart(/.*)?                             gen_context(system_u:object_r:stalwart_state_t,s0)
 /var/log/stalwart(/.*)?                             gen_context(system_u:object_r:stalwart_log_t,s0)
 /run/stalwart(/.*)?                                 gen_context(system_u:object_r:stalwart_runtime_t,s0)
+/usr/lib/particleos/stalwart/image-manager          -- gen_context(system_u:object_r:stalwart_image_manager_exec_t,s0)
 /var/lib/particleos/stalwart/staging(/.*)?          gen_context(system_u:object_r:stalwart_image_staging_t,s0)
 /var/lib/particleos/stalwart(/.*)?                  gen_context(system_u:object_r:stalwart_image_t,s0)

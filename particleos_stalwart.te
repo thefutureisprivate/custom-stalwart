@@ -48,6 +48,39 @@ manage_dirs_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_
 manage_files_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_staging_t)
 filetrans_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_staging_t, { dir file })
 
+# Only the host image manager may promote a verified candidate from importd's
+# staging tree into the protected current/previous image store. Keep PID 1 and
+# unrelated system services read-only on the store.
+type stalwart_image_manager_t;
+type stalwart_image_manager_exec_t;
+init_daemon_domain(stalwart_image_manager_t, stalwart_image_manager_exec_t)
+allow init_t stalwart_image_manager_t:process2 { nnp_transition nosuid_transition };
+
+manage_dirs_pattern(stalwart_image_manager_t, stalwart_image_t, stalwart_image_t)
+manage_files_pattern(stalwart_image_manager_t, stalwart_image_t, stalwart_image_t)
+manage_lnk_files_pattern(stalwart_image_manager_t, stalwart_image_t, stalwart_image_t)
+allow stalwart_image_manager_t stalwart_image_staging_t:dir list_dir_perms;
+read_files_pattern(stalwart_image_manager_t, stalwart_image_staging_t, stalwart_image_staging_t)
+delete_files_pattern(stalwart_image_manager_t, stalwart_image_staging_t, stalwart_image_staging_t)
+
+type stalwart_image_manager_tmp_t;
+files_tmp_file(stalwart_image_manager_tmp_t)
+systemd_private_tmp(stalwart_image_manager_tmp_t)
+manage_files_pattern(stalwart_image_manager_t, stalwart_image_manager_tmp_t, stalwart_image_manager_tmp_t)
+files_tmp_filetrans(stalwart_image_manager_t, stalwart_image_manager_tmp_t, file)
+
+allow stalwart_image_manager_t self:fifo_file rw_fifo_file_perms;
+allow stalwart_image_manager_t self:process { getsched signal };
+corecmd_exec_bin(stalwart_image_manager_t)
+corecmd_exec_shell(stalwart_image_manager_t)
+dbus_system_bus_client(stalwart_image_manager_t)
+dev_read_urand(stalwart_image_manager_t)
+files_read_usr_files(stalwart_image_manager_t)
+init_dbus_chat(stalwart_image_manager_t)
+init_manage_transient_unit(stalwart_image_manager_t)
+logging_send_syslog_msg(stalwart_image_manager_t)
+miscfiles_read_localization(stalwart_image_manager_t)
+
 type stalwart_tmp_t;
 files_tmp_file(stalwart_tmp_t)
 systemd_private_tmp(stalwart_tmp_t)
