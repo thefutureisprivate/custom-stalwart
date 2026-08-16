@@ -75,13 +75,21 @@ files_tmp_filetrans(stalwart_image_manager_t, stalwart_image_manager_tmp_t, file
 allow init_t stalwart_image_manager_t:fd use;
 allow init_t stalwart_image_manager_tmp_t:file { getattr write append };
 
+# systemd performs a second SELinux authorization check before it starts a
+# transient RootImage unit. The refpolicy transient-unit interface covers the
+# service class; current systemd also checks the system class explicitly.
+# Permit only starting a unit through PID 1, not the other system operations.
+allow stalwart_image_manager_t init_t:system start;
+
 allow stalwart_image_manager_t self:fifo_file rw_fifo_file_perms;
 allow stalwart_image_manager_t self:process { getsched signal };
 corecmd_exec_bin(stalwart_image_manager_t)
 corecmd_exec_shell(stalwart_image_manager_t)
 dbus_system_bus_client(stalwart_image_manager_t)
 dev_read_urand(stalwart_image_manager_t)
+dev_getattr_sysfs_fs(stalwart_image_manager_t)
 files_read_usr_files(stalwart_image_manager_t)
+auth_read_passwd_file(stalwart_image_manager_t)
 init_dbus_chat(stalwart_image_manager_t)
 init_manage_transient_unit(stalwart_image_manager_t)
 logging_send_syslog_msg(stalwart_image_manager_t)
