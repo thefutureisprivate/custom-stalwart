@@ -80,6 +80,7 @@ init_dbus_chat(stalwart_image_manager_t)
 init_manage_transient_unit(stalwart_image_manager_t)
 logging_send_syslog_msg(stalwart_image_manager_t)
 miscfiles_read_localization(stalwart_image_manager_t)
+systemd_exec_systemctl(stalwart_image_manager_t)
 
 type stalwart_tmp_t;
 files_tmp_file(stalwart_tmp_t)
