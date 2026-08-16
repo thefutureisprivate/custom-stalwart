@@ -1,7 +1,7 @@
 %global toolchain clang
 %global webui_version 1.0.8
 %global webui_sha256 a3904b571aacca815eee2c38dd86de510d53304babe50b9576760bf70a36c0bf
-%global package_release 20
+%global package_release 21
 
 Name:           stalwart
 Version:        0.16.17
@@ -232,6 +232,9 @@ fi
 %{_prefix}/lib/stalwart/config.json
 
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-21
+- Use the exact pidfs interface required by systemd-run
+
 * Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-20
 - Permit the confined image manager's verified transient RootImage probe
 
