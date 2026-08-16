@@ -4,7 +4,7 @@
 
 Name:           stalwart
 Version:        0.16.17
-Release:        14%{?dist}
+Release:        15%{?dist}
 Summary:        Secure mail and collaboration server
 License:        AGPL-3.0-only
 URL:            https://stalw.art/
@@ -222,6 +222,9 @@ fi
 %{_prefix}/lib/stalwart/config.json
 
 %changelog
+* Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-15
+- Confine systemd-importd writes to a dedicated service-image staging type
+
 * Sun Aug 16 2026 ParticleOS <contact@thefutureisprivate.dev> - 0.16.17-14
 - Define the fixed GID before the fixed Stalwart user for fresh sysusers roots
 

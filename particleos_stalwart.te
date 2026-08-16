@@ -1,5 +1,9 @@
 policy_module(particleos_stalwart, 1.0.0)
 
+gen_require(`
+    type systemd_importd_t;
+')
+
 type stalwart_t;
 type stalwart_exec_t;
 init_daemon_domain(stalwart_t, stalwart_exec_t)
@@ -29,6 +33,20 @@ files_type(stalwart_image_t)
 allow init_t stalwart_image_t:dir list_dir_perms;
 allow init_t stalwart_image_t:file read_file_perms;
 allow init_t stalwart_image_t:lnk_file read_lnk_file_perms;
+
+# systemd-sysupdate hands URL acquisition to the deliberately confined import
+# helper. Give that domain a separate staging type instead of write access to
+# the protected current/previous image store. PID 1's image manager validates
+# the embedded signature and verity tree before copying a candidate into the
+# protected type.
+type stalwart_image_staging_t;
+files_type(stalwart_image_staging_t)
+allow init_t stalwart_image_staging_t:dir list_dir_perms;
+allow init_t stalwart_image_staging_t:file read_file_perms;
+allow systemd_importd_t stalwart_image_t:dir search_dir_perms;
+manage_dirs_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_staging_t)
+manage_files_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_staging_t)
+filetrans_pattern(systemd_importd_t, stalwart_image_staging_t, stalwart_image_staging_t, { dir file })
 
 type stalwart_tmp_t;
 files_tmp_file(stalwart_tmp_t)
