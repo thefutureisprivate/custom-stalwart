@@ -1,0 +1,15 @@
+Stalwart Mail Server
+https://github.com/stalwartlabs/stalwart
+Pinned release: v0.16.17
+Copyright Stalwart Labs and contributors
+Licensed under AGPL-3.0-only after removal of Enterprise-licensed source.
+
+Stalwart Webadmin
+https://github.com/stalwartlabs/webui
+Pinned release: v1.0.8
+Copyright Stalwart Labs and contributors
+Licensed under AGPL-3.0-only.
+
+ParticleOS patches, RPM packaging, systemd integration, and SELinux policy in
+this repository are distributed under AGPL-3.0-only. Generated Cargo vendor
+sources are not stored in Git and retain their individual upstream licenses.

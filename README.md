@@ -1,108 +1,153 @@
-# Stalwart OBS package
+<h1 align="center">ParticleOS Stalwart</h1>
 
-This repository tracks the reviewed, non-generated files mirrored to
-`home:thefutureisprivate/stalwart`. OBS is the authoritative source store and
-build/signing environment. Generated source and vendor archives deliberately
-remain in OBS instead of Git.
+<p align="center">
+  A minimal, PostgreSQL-only Stalwart package for the ParticleOS mailserver image.
+</p>
 
-The public repository is
-[thefutureisprivate/custom-stalwart](https://github.com/thefutureisprivate/custom-stalwart).
+<p align="center">
+  <strong>Stalwart 0.16.17 for Fedora 44 on x86-64.</strong>
+</p>
 
-The package builds Stalwart from its AGPL source with Rust and Cargo from
-Fedora 44. Cargo is forced offline and frozen against the vendored upstream
-lock. Only the PostgreSQL backend is enabled; embedded databases, other SQL
-databases, cloud-storage, queue, distributed-coordination, and enterprise code
-are excluded. Vendor filtering is disabled so `respect-lockfile=true` verifies
-the complete upstream lock. The upstream jemalloc global allocator is removed
-so the packaged service uses `hardened_malloc`. Its explicit preload preserves
-ParticleOS's `no_rlimit_as` companion library. Rust release-profile integer
-overflow checks are enabled in the patched source rather than only through a
-build-environment override.
+## Table of Contents
 
-Every response is finalized with a non-overridable browser-security policy:
-CSP, TLS-only HSTS, `nosniff`, clickjacking protection, a restrictive referrer
-policy, same-origin opener and resource isolation, a restrictive permissions
-policy, and legacy cross-domain policy denial. The CSP has no `unsafe-eval` or
-general inline-script allowance; its two hashes cover only the packaged login
-page's inline script and style. Inline style attributes remain allowed because
-the current upstream Web UI generates them. Login and device-authorization
-pages are marked `no-store`.
+- [Purpose](#purpose)
+- [Package Layout](#package-layout)
+- [Security and Hardening](#security-and-hardening)
+- [Runtime Contract](#runtime-contract)
+- [Network Surface](#network-surface)
+- [Build and Publish](#build-and-publish)
+- [Verification](#verification)
+- [Known Cryptography Constraint](#known-cryptography-constraint)
+- [Licensing](#licensing)
 
-The WebUI is upstream v1.0.8, pinned to the release asset's published
-SHA-256 digest and installed in immutable `/usr`. Stalwart accepts only that
-exact local bundle path, so registry changes cannot recreate its upstream
-first-boot download channel. WebUI changes consequently pass through the same
-OBS build, RPM signature, signed image, and system-update verification as the
-server binary.
+## Purpose
 
-## Approve an update
+This repository contains the reviewed, non-generated inputs for the
+`home:thefutureisprivate/stalwart` OBS package. It builds the AGPL Stalwart
+server from source with Fedora's Rust toolchain and publishes the runtime,
+fixed identity, host integration, and SELinux policy as separate RPMs.
 
-Source services are in OBS `manual` mode. This is intentional because the
-public OBS service workers do not provide `cargo_vendor`; the authenticated
-tools distrobox is the source-preparation runner. The scheduled updater checks
-for stable upstream releases and currently stops for explicit permission:
+OBS stores the generated upstream and Cargo vendor archives and is the
+authoritative builder, signer, and publisher. Generated archives and RPMs are
+not committed to Git.
 
-1. Review the upstream release and upgrade notes.
-2. Change `Version:` and add a changelog entry in `stalwart.spec`.
-3. In the OBS package checkout, run `osc service manualrun`.
-4. Verify the source archive, regenerated vendor archive, dependency graph,
-   and `osc diff`.
-5. Commit, wait for the `stalwart_Fedora_44` x86-64 build, then verify the RPM
-   signature, hardening flags, file list, and repository publication. That
-   dedicated repository inherits from stable Fedora 44 updates rather than
-   the live `system:systemd` build lane; the ParticleOS image repository must
-   search it before the general `Fedora_44` repository.
+## Package Layout
 
-The packaged startup configuration connects to the local PostgreSQL Unix
-socket as the `stalwart` operating-system account. PostgreSQL peer
-authentication maps it to the same unprivileged database role, so no database
-password exists in an environment variable or configuration file. The
-ParticleOS mailserver image owns database initialization and provisioning.
-The package also requires `systemd-resolved`; Stalwart has no independent DNS
-egress to external resolvers. Its immutable default uses resolved's
-loopback-only TCP proxy stub at `127.0.0.54:53`. Resolved translates that flow
-to authenticated Cloudflare DNS-over-TLS while preserving the DNSSEC records
-Stalwart validates locally for DANE. Ordinary OS resolution continues through
-resolved's full validating stub at `127.0.0.53`.
+| RPM | Contents | Installed location |
+| --- | --- | --- |
+| `stalwart` | Server executable, hardened allocator dependencies, packaged WebUI | Signed Stalwart service image |
+| `stalwart-particleos-user` | Fixed UID/GID 993 | Host and service image |
+| `stalwart-particleos-host` | systemd unit, immutable configuration seed, persistent-directory policy | ParticleOS host |
+| `stalwart-selinux` | Dedicated SELinux policy module | ParticleOS host |
 
-The default public protocol set is SMTP 25, implicit-TLS submission 465,
-implicit-TLS IMAP 993, and HTTPS 443. POP3 and ManageSieve are not created by
-the default registry and are not admitted by the ParticleOS firewall. Public
-listeners bind explicitly on both IPv4 and IPv6; the plaintext bootstrap WebUI
-listener binds only to `127.0.0.1:8080` and `[::1]:8080`.
-Listener binding is fail-closed: any requested address that cannot be bound
-aborts startup instead of leaving Stalwart active with a partial listener set
-or an implicitly assigned ephemeral port.
+The current package is Stalwart `0.16.17-22` with WebUI `1.0.8`. Only the
+PostgreSQL backend is compiled. Embedded databases, alternative SQL stores,
+cloud storage, queue services, distributed coordination, and proprietary
+enterprise source are excluded.
 
-Fedora assigns TCP 993 to the historical SELinux `pop_port_t`, which also
-contains legacy POP ports. The Stalwart domain therefore needs bind permission
-for that Fedora type to provide IMAPS. This does not enable POP: the compiled
-registry defaults omit POP listeners, the image health gate rejects unexpected
-legacy listeners, and nftables exposes only the four documented public ports.
+## Security and Hardening
 
-The source package emits separate runtime, fixed-identity, host-integration,
-and SELinux-policy RPMs. ParticleOS installs only the host integration,
-identity, and policy packages in the OS image; the runtime RPM is installed
-only in the signed dm-verity Stalwart service image. The mailserver image
-installs the policy before the final full-filesystem relabel. The
-domain may read only its labelled configuration and WebUI, manage its labelled
-state/log/runtime trees, connect to PostgreSQL only over its Unix socket,
-resolve through the host stub, and bind or connect only to the selected mail
-and HTTP port types.
+- Cargo runs offline and frozen against the complete vendored lockfile.
+- `ossify.py` removes Enterprise-licensed Rust source before any build script
+  executes, and the build rejects remaining `LicenseRef-SEL` files.
+- The unused vulnerable `fast-float` dependency is removed before compilation.
+- The server uses libc allocation so ParticleOS `hardened_malloc` can
+  interpose; `no_rlimit_as` remains preloaded for the service.
+- Release integer-overflow checks are enabled in the patched Cargo profile.
+- Rust output is PIE with RELRO, immediate binding, a non-executable stack,
+  frame pointers, ThinLTO, and the LLVM linker.
+- Listener binding fails closed if any configured address cannot be bound.
+- The WebUI release archive is pinned by SHA-256, installed as an immutable
+  local file, and cannot be replaced through Stalwart's network update path.
+- A dedicated SELinux domain limits configuration, WebUI, state, logs, runtime
+  files, PostgreSQL socket access, resolver access, and the selected protocol
+  ports.
 
-Keep both services in `manual` mode. Once unattended updates are approved,
-change the scheduled task from “ask for explicit approval” to “run
-`osc service manualrun`, validate, commit, and verify publication.” Removing
-that single approval instruction is the whole gate; OBS remains the
-builder, signer, and publisher.
+Every HTTP response passes through a non-overridable browser policy containing
+CSP, HSTS on TLS responses, `nosniff`, clickjacking protection, a restrictive
+referrer policy, opener/resource isolation, permissions policy, and legacy
+cross-domain denial. Login and device-authorization responses use `no-store`.
+The CSP permits only the hashes required by the packaged login page and does
+not allow `unsafe-eval` or general inline scripts.
 
-## Known upstream cryptography constraint
+## Runtime Contract
 
-Stalwart 0.16.17 still uses the RustCrypto `rsa` crate, for which
-RUSTSEC-2023-0071 has no fixed release. ParticleOS deployments must use
-Ed25519 DKIM signing keys. The package removes the unused vulnerable
-`fast-float` crate and excludes optional backends whose dependency closures
-contain older vulnerable XML or compression crates. The exact RustSec IDs are
-accepted in `_service` with per-finding rationale because the vendoring service
-audits the unpatched, all-features lockfile; the RPM build compiles only the
-patched PostgreSQL graph.
+The ParticleOS host supplies PostgreSQL 18 over
+`/run/postgresql/.s.PGSQL.5432`. The `stalwart` operating-system account maps
+to the same unprivileged PostgreSQL role through peer authentication, so no
+database password or environment secret exists.
+
+The host also supplies `systemd-resolved`. Stalwart sends TCP DNS requests only
+to resolved's loopback proxy at `127.0.0.54:53`; resolved carries them over the
+host's authenticated DNS-over-TLS path while preserving DNSSEC records for
+Stalwart's local DANE validation.
+
+The executable and WebUI run from a signed, dm-verity-protected systemd
+`RootImage=` service image. The ParticleOS host installs only the fixed
+identity, service integration, SELinux policy, PostgreSQL, and image selector.
+
+## Network Surface
+
+| Protocol | Port | Exposure |
+| --- | ---: | --- |
+| SMTP | TCP 25 | Public |
+| HTTPS / WebUI | TCP 443 | Public |
+| Implicit-TLS submission | TCP 465 | Public |
+| IMAPS | TCP 993 | Public |
+| Recovery WebUI | TCP 8080 | Loopback only |
+
+POP3, ManageSieve, plaintext client protocols, and PostgreSQL are not exposed.
+Public listeners bind explicitly to IPv4 and IPv6. Stalwart egress is limited
+by the ParticleOS host firewall to SMTP TCP 25, HTTPS TCP 443, and the local
+resolver proxy.
+
+Fedora labels TCP 993 with the historical `pop_port_t` SELinux type. The
+Stalwart domain receives bind permission for that type solely to provide
+IMAPS; neither the compiled registry nor the ParticleOS firewall enables POP.
+
+## Build and Publish
+
+The source services use `manual` mode because build.opensuse.org does not
+provide the `cargo_vendor` service used by this package. Run source preparation
+from the authenticated tools distrobox:
+
+```sh
+osc service manualrun
+osc diff
+osc commit
+osc results home:thefutureisprivate stalwart
+```
+
+Before committing, review the upstream archive, regenerated vendor archive,
+Cargo lockfile, accepted RustSec findings, WebUI digest, patches, and source
+service diff. The package builds only in the `stalwart_Fedora_44` x86-64
+repository.
+
+## Verification
+
+OBS runs the patched HTTP-policy, local-application, listener, datastore, and
+server tests. Release verification also checks:
+
+- the RPM and repository signatures;
+- the exact package and WebUI versions;
+- absence of jemalloc and Enterprise-licensed source;
+- the WebUI archive and generated response digests;
+- PIE, RELRO, immediate binding, and non-executable-stack properties;
+- the four-package file split and fixed identity;
+- SELinux policy installation and the dedicated runtime domain; and
+- startup and protocol health from the signed ParticleOS service image.
+
+## Known Cryptography Constraint
+
+The current source graph uses the RustCrypto `rsa` crate affected by
+`RUSTSEC-2023-0071`, for which no fixed release is available. ParticleOS
+deployments must use Ed25519 DKIM signing keys. The `_service` file records the
+accepted advisory together with the disabled-feature or removal rationale for
+every other audited finding.
+
+## Licensing
+
+Stalwart, the packaged WebUI, and the downstream source patches are distributed
+under [AGPL-3.0-only](LICENSE). Attribution and repository scope are recorded
+in [NOTICE](NOTICE). Generated Cargo vendor sources retain their individual
+upstream licenses.
